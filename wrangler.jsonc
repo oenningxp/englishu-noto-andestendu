@@ -1,6 +1,6 @@
 {
-  // Papo em Inglês na Cloudflare. Usa o MESMO banco (contas) e as MESMAS imagens do Gothic.
-  "name": "papo",
+  // Englishu Noto Andestêndu na Cloudflare. Usa o MESMO banco (contas) e as MESMAS imagens do Gothic.
+  "name": "englishu-noto-andestendu",
   "main": "src/worker.js",
   "compatibility_date": "2025-09-01",
   "assets": {

@@ -1,4 +1,4 @@
-// Papo em Inglês: site, login com a conta do Gothic e a IA (Workers AI).
+// Englishu Noto Andestêndu: site, login com a conta do Gothic e a IA (Workers AI).
 import { checkPassword, hashPassword, checkTotp, randomToken, sha256 } from "./auth.js";
 import { SYSTEM, SCHEMA, buildPrompt, parseReply, unsureWords } from "./tutor.js";
 
