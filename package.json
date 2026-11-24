@@ -1,0 +1,15 @@
+{
+  "name": "papo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test:full": "npm test && node --no-warnings test/worker.test.mjs",
+    "test": "for f in src/*.js public/*.js; do node --check $f || exit 1; done && node test/tutor.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

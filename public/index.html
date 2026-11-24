@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#d7263d">
+<title>Papo em Inglês</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<!-- entrar -->
+<section id="login" class="login" hidden>
+  <div class="lcard">
+    <svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><path d="M8 14a8 8 0 0 1 8-8h22a8 8 0 0 1 8 8v14a8 8 0 0 1-8 8H24l-10 8v-8h2a8 8 0 0 1-8-8z" fill="#d7263d"/><path d="M26 30a8 8 0 0 1 8-8h14a8 8 0 0 1 8 8v12a8 8 0 0 1-8 8h-2v8l-10-8h-2a8 8 0 0 1-8-8z" fill="#2154d6"/></svg>
+    <h1>Papo em <b>Inglês</b></h1>
+    <p class="sub">Converse com o Sam em inglês americano e seja corrigido no caminho. Entre com a sua conta do Gothic.</p>
+    <form id="fLogin">
+      <label>Usuário do Gothic (o de login)<input id="lUser" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+      <label>Senha<input id="lPass" type="password" autocomplete="current-password" required></label>
+      <button class="big" type="submit">Entrar</button>
+    </form>
+    <form id="fTotp" hidden>
+      <label>Código do app autenticador<input id="lCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" required></label>
+      <button class="big" type="submit">Confirmar</button>
+      <button class="link" type="button" id="back">Voltar</button>
+    </form>
+    <p class="lerr" id="lErr" role="alert"></p>
+  </div>
+</section>
+
+<!-- app -->
+<div id="app" class="app" hidden>
+  <header>
+    <h1>Papo em <b>Inglês</b></h1>
+    <div class="chips"><span class="chip" id="topic" hidden></span><span class="chip lv" id="level" hidden></span></div>
+    <button class="me" id="meBtn" aria-expanded="false" aria-controls="set"><span class="av" id="av"></span><span class="sr">Ajustes</span></button>
+    <div id="set" class="set">
+      <p class="who" id="who"></p>
+      <label>Voz do Sam <select id="voice"><option value="server">Voz do servidor</option><option value="phone">Voz do aparelho</option></select></label>
+      <label>Velocidade <input type="range" id="rate" min="0.7" max="1.3" step="0.05"> <span id="rateV"></span></label>
+      <label class="ck"><input type="checkbox" id="auto"> Enviar sozinho ao parar de falar</label>
+      <div class="btns"><button class="ib" id="skip">Trocar de assunto</button><button class="ib" id="reset">Nova conversa</button><button class="ib" id="logout">Sair</button></div>
+    </div>
+  </header>
+  <main id="main"><div class="wrap" id="chat"></div></main>
+  <footer>
+    <div id="status" aria-live="polite"></div>
+    <form class="bar" id="form">
+      <button type="button" id="mic" aria-label="Falar"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+      <input id="inp" autocomplete="off" placeholder="Fale ou digite em inglês…" aria-label="Sua mensagem">
+      <button type="submit" id="send" aria-label="Enviar"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15M13 6l6 6-6 6"/></svg></button>
+    </form>
+  </footer>
+</div>
+<script src="/app.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  // Papo em Inglês na Cloudflare. Usa o MESMO banco (contas) e as MESMAS imagens do Gothic.
+  "name": "papo",
+  "main": "src/worker.js",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/img/*"]
+  },
+  "vars": {
+    // Dono do app (mesmo login do Gothic, em minúsculas): não tem limite diário.
+    "ADMIN_USERNAME": "oenningxp",
+    // Modelo de conversa do Workers AI. Dá para trocar sem mexer no código.
+    "MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    // Falas por dia para cada amigo (protege a cota grátis da Cloudflare).
+    "DAILY_LIMIT": "120"
+  },
+  "ai": { "binding": "AI" },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "gothic-db", "database_id": "b566f4d5-a765-47d2-84d4-08658e711149" }
+  ],
+  "kv_namespaces": [
+    { "binding": "IMAGES", "id": "dcec6441ad2f4ed6a33f14fb0f2cfeb3" }
+  ]
+}
