@@ -17,8 +17,10 @@
     "FALLBACK_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     // Modelo da resposta (o que a pessoa espera). Vazio = usa o MODEL. Dá pra medir em /api/admin/speed.
     "REPLY_MODEL": "",
-    // Quanto o modelo "pensa" nas correções (rodam em paralelo): low, medium ou high.
-    "CHECK_EFFORT": "medium",
+    // Quanto o modelo "pensa" nas correções (rodam em paralelo): low, medium ou high. "low" economiza a cota.
+    "CHECK_EFFORT": "low",
+    // Modelo menor e mais barato para as sugestões de resposta.
+    "SUG_MODEL": "@cf/openai/gpt-oss-20b",
     // Pedidos à IA por dia para cada amigo (protege a cota grátis da Cloudflare).
     "DAILY_LIMIT": "100"
   },

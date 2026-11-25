@@ -150,3 +150,4 @@ body.noromaji .romaji{display:none}
 .note.score{max-width:520px}
 .exp{display:inline-flex;align-items:center;text-decoration:none;align-self:flex-start}
 .wait{color:var(--mute)!important;animation:pulse 1.4s ease-in-out infinite}@keyframes pulse{50%{opacity:.45}}@media(prefers-reduced-motion:reduce){.wait{animation:none}}
+.sugask{align-self:flex-start}

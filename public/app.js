@@ -119,8 +119,8 @@ const showPtOf = m => m.showPt ?? (lang === "ja" && P.ptAlways);
 // sugestões de resposta (só na última fala do professor)
 const sugOn = () => store.get("sug_" + lang, true);
 function sugHtml(m) {
-  if (sugOn() && (!m.sug || !m.sug.length) && isPending(m)) return '<div class="sugs"><span class="lbl wait">Criando sugestões de resposta…</span></div>';
-  if (!m.sug || !m.sug.length || !sugOn()) return "";
+  if (!sugOn()) return "";
+  if (!m.sug || !m.sug.length) return `<div class="sugs"><button class="ib sugask" data-sugask="${m.id}">${waiting === "ask" + m.id ? "Criando sugestões…" : "Mostrar sugestões de resposta"}</button></div>`;
   return `<div class="sugs"><span class="lbl">Você pode responder (toque em Falar e repita):</span>${m.sug.map((x, k) => {
     const key = "sug:" + m.id + ":" + k, on = rec && target === key;
     return `<div class="sug"><div class="st">${tx(x.text)}${rom(x.romaji)}${x.pt ? `<span class="why">${esc(x.pt)}</span>` : ""}</div><div class="row"><button class="alt" data-sughear="${key}">Ouvir</button><button class="${on ? "rec" : ""}" data-sugsay="${key}">${on ? "Parar" : "Falar"}</button><button class="alt" data-sugtype="${key}">Escrever</button></div></div>`;
@@ -428,6 +428,7 @@ chat.addEventListener("click", e => {
     else if (a === "force-open") openChat(openId, true);
     else render();
   }
+  else if (b.dataset.sugask) extraAsk("sug", { id: b.dataset.sugask }, "ask" + b.dataset.sugask);
   else if (b.dataset.moresug) extraAsk("moresug", { id: b.dataset.moresug }, "sug" + b.dataset.moresug);
   else if (b.dataset.sughear) speak(sugOf(b.dataset.sughear)?.text);
   else if (b.dataset.sugsay) { if (rec && target === b.dataset.sugsay) stopRec(); else startRec(b.dataset.sugsay); }

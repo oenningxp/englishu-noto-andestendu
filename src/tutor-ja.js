@@ -46,7 +46,7 @@ export const SCHEMA = {
 };
 
 export function buildPrompt(state, { extra = "", unsure = [] } = {}) {
-  const lines = (state.msgs || []).slice(-20).map(m => m.role === "me" ? `LEARNER (${m.spoken ? "spoken" : "typed"}): ${m.text}` : `NII: ${plain(m.text)}`).join("\n");
+  const lines = (state.msgs || []).slice(-12).map(m => m.role === "me" ? `LEARNER (${m.spoken ? "spoken" : "typed"}): ${m.text}` : `NII: ${plain(m.text)}`).join("\n");
   const u = unsure.length ? `\nThe speech recognizer was unsure about: ${unsure.slice(0, 8).join("、")}` : "";
   return shownSug(state, plain) + `Current topic: ${state.topic || "none yet"}\nCurrent level estimate: ${state.level || "Iniciante"}\n\nConversation so far:\n${lines || "(empty: open the conversation. The learner knows NO Japanese yet. Greet them warmly with こんにちは, introduce yourself as Nii in one tiny sentence, and ask one super simple question.)"}${u}${extra ? "\n\nNote: " + extra : ""}\n\nAnswer with the JSON object only.`;
 }

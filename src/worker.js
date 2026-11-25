@@ -176,8 +176,9 @@ function tutorParts(T, nick) {
 }
 const replyModels = env => (env.REPLY_MODEL ? [env.REPLY_MODEL] : []);
 const askReply = (env, T, nick, st, opts) => aiJson(env, tutorParts(T, nick).reply, T.buildPrompt(st, opts), REPLY_SCHEMA, parseReplyOnly(T.parseReply), 700, { models: replyModels(env), effort: "low", task: "reply" });
-const askCheck = (env, T, nick, st, unsure) => aiJson(env, tutorParts(T, nick).check, checkPrompt(st, T.name, unsure, T.plain), CHECK_SCHEMA, parseCheck(T.parseReply), 1200, { effort: env.CHECK_EFFORT || "medium", task: "check" });
-const askSug = (env, T, nick, st, aiMsg) => aiJson(env, tutorParts(T, nick).sug, sugPrompt(st, aiMsg, T.plain), SUG_SCHEMA, parseSug, 900, { models: replyModels(env), effort: "low", task: "sug" });
+const askCheck = (env, T, nick, st, unsure) => aiJson(env, tutorParts(T, nick).check, checkPrompt(st, T.name, unsure, T.plain), CHECK_SCHEMA, parseCheck(T.parseReply), 1200, { effort: env.CHECK_EFFORT || "low", task: "check" });
+// sugestões: modelo menor e mais barato (SUG_MODEL), só quando a pessoa pede
+const askSug = (env, T, nick, st, aiMsg) => aiJson(env, tutorParts(T, nick).sug, sugPrompt(st, aiMsg, T.plain), SUG_SCHEMA, parseSug, 900, { models: env.SUG_MODEL ? [env.SUG_MODEL] : replyModels(env), effort: "low", task: "sug" });
 // voz do servidor: Deepgram Aura-2 (só inglês; o MeloTTS foi desativado pela Cloudflare em 20/11/2026).
 // Japonês não tem voz no servidor: o app usa a voz japonesa do aparelho.
 async function toBytes(r) {
@@ -288,24 +289,35 @@ async function api(req, env, path, ctx) {
     if (r.topic_pt) st.topic = r.topic_pt;
     if (r.level) st.level = r.level;
     const now = Date.now();
-    const ai = { role: "ai", id: "m" + (++st.n), text: r.reply, pt: r.reply_pt, ...(r.romaji ? { romaji: r.romaji } : {}), pending: now };
+    const ai = { role: "ai", id: "m" + (++st.n), text: r.reply, pt: r.reply_pt, ...(r.romaji ? { romaji: r.romaji } : {}) };
     st.msgs.push(ai);
     if (learner) learner.pending = now;
     st.dirty = true;
     await saveState(env, sk, st);
-    // depois de responder: termina as correções e cria as sugestões, e grava quando ficarem prontas
+    // depois de responder: termina as correções e grava quando ficarem prontas
     const followUp = (async () => {
-      const [fix, sug] = await Promise.all([checkP, askSug(env, T, s.nick, st, ai).catch(e => { console.error(e); return null; })]);
-      const cur = await loadState(env, sk);
-      const L = learner && cur.msgs.find(m => m.id === learner.id), A = cur.msgs.find(m => m.id === ai.id);
-      if (L) { L.fix = fix || { items: [], corrected: "", failed: !fix }; delete L.pending; }
-      if (A) { if (sug) A.sug = sug; delete A.pending; }
-      if (L || A) await saveState(env, sk, cur);
+      if (!checkP) return;
+      const fix = await checkP;
+      const cur = await loadState(env, sk), L = cur.msgs.find(m => m.id === learner.id);
+      if (L) { L.fix = fix || { items: [], corrected: "", failed: !fix }; delete L.pending; await saveState(env, sk, cur); }
     })();
     if (ctx && ctx.waitUntil) { ctx.waitUntil(followUp); return json({ state: st }); }
     await followUp; return json({ state: await loadState(env, sk) });
   }
   // --- "explicar de outro jeito" (uma correção) e "não entendi" (uma fala do Sam)
+  // --- sugestões de resposta (só quando a pessoa toca no botão, para economizar a cota)
+  if (path === "sug" && method === "POST") {
+    const st = await loadState(env, sk), m = st.msgs.find(x => x.id === body.id);
+    if (!m || m.role !== "ai") return err("Mensagem não encontrada.", 404);
+    if (m.sug && m.sug.length) return json({ state: st });
+    if (!(await useQuota(env, s))) return err("Você chegou no limite de falas de hoje. Amanhã tem mais!", 429);
+    let sug;
+    try { sug = await askSug(env, T, s.nick, st, m); }
+    catch (e) { console.error(e); return err(quotaErr(e) ? QUOTA : "Não consegui criar sugestões agora. Tente de novo.", quotaErr(e) ? 429 : 502); }
+    if (!sug) return err("Não consegui criar sugestões agora. Tente de novo.", 502);
+    m.sug = sug; st.dirty = true; await saveState(env, sk, st);
+    return json({ state: st });
+  }
   // --- "Mais sugestões": troca as sugestões da última fala por outras novas
   if (path === "moresug" && method === "POST") {
     const st = await loadState(env, sk), m = st.msgs.find(x => x.id === body.id);

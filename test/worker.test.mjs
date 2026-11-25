@@ -103,6 +103,7 @@ const r1 = await worker.fetch(new Request("https://papo.test/api/me?lang=ja", { 
 assert.match((await r1.json()).state.msgs[0].text, /ニイ/);
 assert.equal((await call("me")).data.state.msgs[0].text, enFirst, "o Sam continua com a conversa dele");
 const ms = await call("moresug", { id: ja.data.state.msgs[0].id, lang: "ja" });
+assert.equal((await call("sug", { id: ja.data.state.msgs[0].id, lang: "ja" })).status, 200, "já tem sugestões: não pede de novo");
 assert.equal(ms.data.state.msgs[0].sug[0].romaji, "Amerika ga suki desu.");
 assert.ok((await call("cmd", { cmd: "save", lang: "ja" })).data.state.chatId);
 assert.equal((await call("chats")).data.chats.length, 0, "conversas salvas do Sam não mostram as do Nii");
@@ -115,7 +116,7 @@ assert.equal((await call("tts-check")).status, 403, "diagnóstico só pro dono")
 // Juan (espanhol): terceira conversa separada (conta nova, com cota)
 cookie = ""; await call("login", { username: "liane", password: "123456" }); const lianeFirst = (await call("chat", {})).data.state.msgs[0].text;
 const es1 = await call("chat", { text: "yo gusto de fútbol", lang: "es" });
-assert.equal(es1.status, 200); assert.equal(es1.data.state.msgs[0].fix.items[0].better, "me gusta el fútbol"); assert.equal(es1.data.state.msgs[1].sug[0].text, "¡Sí, me encanta!");
+assert.equal(es1.status, 200); assert.equal(es1.data.state.msgs[0].fix.items[0].better, "me gusta el fútbol"); assert.equal(es1.data.state.msgs[1].sug, undefined, "sugestões só quando pedir");
 assert.equal((await call("me")).data.state.msgs[0].text, lianeFirst, "Sam continua igual");
 const esTts = await call("tts", { text: "Hola", lang: "es" }); assert.equal(new TextDecoder().decode(esTts.data), "fake-mp3", "espanhol: voz Aura-2-es");
 

@@ -44,7 +44,7 @@ export { SCHEMA } from "./tutor.js";
 export const parseReply = parseReplyEn;
 
 export function buildPrompt(state, { extra = "", unsure = [] } = {}) {
-  const lines = (state.msgs || []).slice(-20).map(m => m.role === "me" ? `LEARNER (${m.spoken ? "spoken" : "typed"}): ${m.text}` : `JUAN: ${m.text}`).join("\n");
+  const lines = (state.msgs || []).slice(-12).map(m => m.role === "me" ? `LEARNER (${m.spoken ? "spoken" : "typed"}): ${m.text}` : `JUAN: ${m.text}`).join("\n");
   const u = unsure.length ? `\nThe speech recognizer was unsure about these words in the learner's last line: ${unsure.slice(0, 8).join(", ")}` : "";
   return shownSug(state) + `Current topic: ${state.topic || "none yet"}\nCurrent level estimate: ${state.level || "unknown"}\n\nConversation so far:\n${lines || "(empty: open the conversation. Greet the learner with lots of energy, introduce yourself as Juan in one short sentence, pick an easy first topic and ask a question.)"}${u}${extra ? "\n\nNote: " + extra : ""}\n\nAnswer with the JSON object only.`;
 }
