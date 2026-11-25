@@ -109,6 +109,15 @@ assert.equal((await call("tts", { text: "私{わたし}です", lang: "ja" })).s
 const tts = await call("tts", { text: "Hello" }); assert.equal(new TextDecoder().decode(tts.data), "fake-mp3", "inglês: Aura");
 assert.equal((await call("tts-check")).status, 403, "diagnóstico só pro dono");
 
+// exportação: só o dono, sem nomes
+assert.equal((await call("admin/export")).status, 403);
+db.prepare("INSERT INTO users (id,username,nick,pass_hash,pass_salt,totp_secret,totp_on,status) VALUES ('u9','oenningxp','Dono',?,?,?,1,'active')").run(hash, salt, secret);
+cookie = ""; await call("login", { username: "oenningxp", password: "senha1234" });
+await call("login/totp", { code: await totpAt(secret, Math.floor(Date.now() / 30000)) });
+const ex2 = await call("admin/export"); const exp = ex2.data;
+assert.equal(ex2.status, 200); assert.equal(exp.total_conversas, 1); assert.equal(exp.conversas[0].pessoa, "aluno-1"); assert.equal(exp.conversas[0].idioma, "ja");
+assert.ok(!JSON.stringify(exp).includes("isabella"), "sem nomes de usuário");
+
 // contas só do Englishu (sem 2FA)
 cookie = "";
 assert.equal((await call("login", { username: "Amanda", password: "errada" })).status, 401);

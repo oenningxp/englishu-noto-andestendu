@@ -148,3 +148,4 @@ body.noromaji .romaji{display:none}
 .sug .row button{min-height:38px;font-size:13px;padding:0 14px}
 .ja .sug .st{line-height:2.1}
 .note.score{max-width:520px}
+.exp{display:inline-flex;align-items:center;text-decoration:none;align-self:flex-start}

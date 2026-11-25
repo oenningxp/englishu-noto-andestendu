@@ -45,6 +45,7 @@ function showApp(d) {
   $("#av").innerHTML = me.avatar ? `<img alt="" src="/img/${encodeURIComponent(me.avatar)}">` : esc((me.nick || "?").slice(0, 1).toUpperCase());
   $("#who").textContent = `Conectado como ${me.nick} (${me.username})`;
   $("#pwBox").hidden = !me.local;
+  $("#exportBtn").hidden = !me.owner;
   applyLang();
 }
 // nome do site muda com o professor

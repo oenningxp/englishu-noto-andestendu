@@ -293,7 +293,7 @@ async function api(req, env, path) {
         await env.DB.prepare("INSERT INTO papo_chats (id,user_id,title,data,created_at,updated_at,lang) VALUES (?,?,?,?,?,?,?)").bind(st.chatId, s.id, title, JSON.stringify({ msgs: st.msgs, topic: st.topic, n: st.n }), now, now, lang).run();
       }
       await saveState(env, sk, st);
-      return json({ state: st, note: `Conversa salva como "${title}". Ela fica em Ajustes → Conversas salvas.` });
+      return json({ state: st, note: `Conversa salva como "${title}". Ela fica em Ajustes → Conversas salvas. Conversas salvas também ajudam a melhorar o app (são revisadas sem o seu nome).` });
     }
     if (cmd === "new" || cmd === "clear" || cmd === "delete") {
       if (cmd === "new" && unsaved && !body.force) return json({ state: st, confirm: "new", note: "Esta conversa não foi salva. Quer salvar antes de abrir uma nova?" });
@@ -346,6 +346,19 @@ async function api(req, env, path) {
       if (!bytes) return err("Voz indisponível.", 502);
       return new Response(bytes, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "private, max-age=86400" } });
     } catch (e) { console.error(e); return err(quotaErr(e) ? QUOTA : "Voz indisponível.", quotaErr(e) ? 429 : 502); }
+  }
+  // exportação das conversas salvas (só o dono): base para as melhorias contínuas. Sem nomes: cada pessoa vira "aluno-N".
+  if (path === "admin/export" && method === "GET") {
+    if (!isOwner(env, s)) return err("Só o dono.", 403);
+    const r = await env.DB.prepare("SELECT user_id,title,data,lang,created_at,updated_at FROM papo_chats ORDER BY user_id, updated_at").all();
+    const rows = r.results || [], alias = new Map(); let n = 0;
+    const who = id => id === s.id ? "dono" : (alias.has(id) ? alias.get(id) : (alias.set(id, "aluno-" + (++n)), alias.get(id)));
+    const keep = m => { const { showPt, ...rest } = m; return rest; };
+    const chats = rows.map(c => { let d = {}; try { d = JSON.parse(c.data); } catch {} return { pessoa: who(c.user_id), idioma: c.lang || "en", titulo: c.title, criada: new Date(c.created_at).toISOString(), atualizada: new Date(c.updated_at).toISOString(), assunto: d.topic || "", mensagens: (d.msgs || []).map(keep) }; });
+    const day = spDay();
+    return new Response(JSON.stringify({ gerado_em: new Date().toISOString(), modelo: env.MODEL, total_conversas: chats.length, pessoas: n + (rows.some(c => c.user_id === s.id) ? 1 : 0), conversas: chats }, null, 1), {
+      headers: { "Content-Type": "application/json; charset=utf-8", "Content-Disposition": `attachment; filename="englishu-conversas-${day}.json"`, "Cache-Control": "no-store" }
+    });
   }
   // diagnóstico da voz (só o dono): /api/tts-check?lang=ja mostra o que o servidor conseguiu gerar
   if (path === "tts-check" && method === "GET") {
