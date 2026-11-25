@@ -130,5 +130,5 @@ assert.equal((await call("password", { old: "123456", new: "nova1234" })).status
 await call("logout", {});
 assert.equal((await call("login", { username: "amanda", password: "123456" })).status, 401, "senha antiga não vale mais");
 assert.equal((await call("login", { username: "amanda", password: "nova1234" })).status, 200);
-for (const u of ["leticia", "isabella", "liane", "manoel", "vitoria"]) { cookie = ""; assert.equal((await call("login", { username: u, password: "123456" })).status, 200, u); }
+for (const u of ["leticia", "isabella", "liane", "manoel", "vitoria", "maria"]) { cookie = ""; assert.equal((await call("login", { username: u, password: "123456" })).status, 200, u); }
 console.log("worker ok");
