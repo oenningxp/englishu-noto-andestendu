@@ -40,7 +40,8 @@ const LOCAL_SEED = [
   ["liane", "Liane", "FKc_Po98-5bXdLDs-T8Liw", "Vm2NvHzDnJucmkp0_ivY1nATASwy0QK9ggqnp2dkcHg"],
   ["manoel", "Manoel", "z2kK5JIM__qcpEhJiHd0RA", "MhLM84SWtlxXd2r32t9xtknCbQwzgMcBA2FrucacWbU"],
   ["vitoria", "Vitória", "ffh1RfARQQxEo7J1dNOnig", "1svgiDcsbht7nzTtRG7Heuwjd7XOIj6X7zn98MQ2GUw"],
-  ["maria", "Maria", "5NOlWu5TItRRth4LBv3jmA", "cVTUBTeKJ61DvZ3Jdxv46B9UEP2yucv3QuhWiY5AIH0"]
+  ["maria", "Maria", "5NOlWu5TItRRth4LBv3jmA", "cVTUBTeKJ61DvZ3Jdxv46B9UEP2yucv3QuhWiY5AIH0"],
+  ["wictor", "Wictor", "7uJWuM7MQlU2UxdKfFbrbQ", "OsbHBSoXmJZOPYLndgj4TdHuM6U6tI5YEcDL076Kroo"]
 ]; // [usuário, nome, sal, hash] — senha inicial 123456
 
 // ---------- tabelas do Papo (as contas são as do Gothic, tabela users, só leitura)
