@@ -24,8 +24,8 @@ const AI = { run: async (model, input) => {
   if (model.includes("aura")) return new Response("fake-mp3").body;
   const sys = input.messages[0].content;
   if (sys.startsWith("You help a Brazilian beginner practice speaking Japanese")) return { response: { suggestions: [{ text: "アメリカが好{す}きです。", romaji: "Amerika ga suki desu.", pt: "Gosto da América." }] } };
-  if (sys.startsWith("You are Juan")) return { response: { reply: "¡Hola! Soy Juan. ¿Te gusta el fútbol?", reply_pt: "Oi! Sou o Juan. Você gosta de futebol?", topic_pt: "Futebol", level: "A2", corrections: [{ type: "grammar", said: "yo gusto de fútbol", better: "me gusta el fútbol", informal: "", why_pt: "x", example: "Me gusta." }], corrected: "Me gusta el fútbol.", suggestions: [{ text: "¡Sí, me encanta!", pt: "Sim, adoro!" }] } };
-  if (sys.startsWith("You are Nii")) return { response: { reply: "こんにちは！ブラジル人{じん}ですか？", romaji: "Konnichiwa! Burajirujin desu ka?", reply_pt: "Oi! Você é brasileiro?", topic_pt: "Apresentação", level: "Iniciante", corrections: [], corrected: "", corrected_romaji: "" } };
+  if (sys.startsWith("You are Juan") || sys.includes("Latin American Spanish")) return { response: { reply: "¡Hola! Soy Juan. ¿Te gusta el fútbol?", reply_pt: "Oi! Sou o Juan. Você gosta de futebol?", topic_pt: "Futebol", level: "A2", corrections: [{ type: "grammar", said: "yo gusto de fútbol", better: "me gusta el fútbol", informal: "", why_pt: "x", example: "Me gusta." }], corrected: "Me gusta el fútbol.", suggestions: [{ text: "¡Sí, me encanta!", pt: "Sim, adoro!" }] } };
+  if (sys.startsWith("You are Nii") || sys.includes("careful Japanese teacher")) return { response: { reply: "こんにちは！ブラジル人{じん}ですか？", romaji: "Konnichiwa! Burajirujin desu ka?", reply_pt: "Oi! Você é brasileiro?", topic_pt: "Apresentação", level: "Iniciante", corrections: [], corrected: "", corrected_romaji: "" } };
   if (sys.startsWith("You help a Brazilian")) return { output: [{ type: "message", content: [{ type: "output_text", text: '{"explain_pt":"Mais fácil.","examples":[{"en":"I live on a ship.","pt":"Moro num navio.","emoji":"🚢"}]}' }] }] };
   if (sys.includes("did not understand your last message")) return { choices: [{ message: { content: '{"simple_en":"What is your job? 💼","hint_pt":"job = trabalho"}' } }] };
   if (model === "@cf/test/llm" && input.response_format) throw new Error("schema não suportado");
@@ -65,10 +65,11 @@ assert.equal(ex.data.state.msgs[1].fix.items[0].more.examples[0].emoji, "🚢");
 const sm = await call("simplify", { id: ex.data.state.msgs[2].id });
 assert.equal(sm.data.state.msgs[2].simple.hint_pt, "job = trabalho");
 assert.equal((await call("simplify", { id: mine.id })).status, 400, "só falas do Sam");
+assert.equal((await call("chat", { text: "again" })).status, 200, "a primeira fala pronta não gasta cota");
 assert.equal((await call("chat", { text: "again" })).status, 429, "limite diário do amigo (4)");
 assert.equal((await call("tts", { text: "Hello" })).status, 429, "voz do servidor conta no limite do dia");
 assert.equal((await call("settings", { voice: "phone", rate: 5, auto: false })).data.settings.rate, 1.3);
-assert.equal((await call("me")).data.state.msgs.length, 3, "a conversa fica salva no servidor");
+assert.equal((await call("me")).data.state.msgs.length, 5, "a conversa fica salva no servidor");
 assert.equal((await call("reset", {})).data.state.msgs.length, 0);
 await call("logout", {}); assert.equal((await call("me")).data.user, null);
 const evil = await worker.fetch(new Request("https://papo.test/api/reset", { method: "POST", headers: { Origin: "https://mal.test" } }), env);
@@ -94,12 +95,13 @@ assert.equal((await call("cmd", { cmd: "xyz" })).status, 400);
 
 // Nii (japonês): conversa separada da do Sam
 cookie = ""; await call("login", { username: "isabella", password: "123456" });
-const enMe = await call("chat", {}); assert.equal(enMe.data.state.msgs[0].text, "Cool! What do you do?");
+const enMe = await call("chat", {}); const enFirst = enMe.data.state.msgs[0].text;
+assert.equal(enMe.data.state.msgs[0].sug.length, 4, "primeira fala pronta já vem com 4 sugestões");
 const ja = await call("chat", { lang: "ja" });
-assert.equal(ja.data.state.msgs.length, 1); assert.equal(ja.data.state.msgs[0].romaji, "Konnichiwa! Burajirujin desu ka?"); assert.equal(ja.data.state.level, "Iniciante");
+assert.equal(ja.data.state.msgs.length, 1); assert.match(ja.data.state.msgs[0].romaji, /Konnichiwa/); assert.match(ja.data.state.msgs[0].text, /ニイ/);
 const r1 = await worker.fetch(new Request("https://papo.test/api/me?lang=ja", { headers: { Cookie: cookie } }), env);
-assert.equal((await r1.json()).state.msgs[0].text, "こんにちは！ブラジル人{じん}ですか？");
-assert.equal((await call("me")).data.state.msgs[0].text, "Cool! What do you do?", "o Sam continua com a conversa dele");
+assert.match((await r1.json()).state.msgs[0].text, /ニイ/);
+assert.equal((await call("me")).data.state.msgs[0].text, enFirst, "o Sam continua com a conversa dele");
 const ms = await call("moresug", { id: ja.data.state.msgs[0].id, lang: "ja" });
 assert.equal(ms.data.state.msgs[0].sug[0].romaji, "Amerika ga suki desu.");
 assert.ok((await call("cmd", { cmd: "save", lang: "ja" })).data.state.chatId);
@@ -111,10 +113,10 @@ const tts = await call("tts", { text: "Hello" }); assert.equal(new TextDecoder()
 assert.equal((await call("tts-check")).status, 403, "diagnóstico só pro dono");
 
 // Juan (espanhol): terceira conversa separada (conta nova, com cota)
-cookie = ""; await call("login", { username: "liane", password: "123456" }); await call("chat", {});
+cookie = ""; await call("login", { username: "liane", password: "123456" }); const lianeFirst = (await call("chat", {})).data.state.msgs[0].text;
 const es1 = await call("chat", { text: "yo gusto de fútbol", lang: "es" });
 assert.equal(es1.status, 200); assert.equal(es1.data.state.msgs[0].fix.items[0].better, "me gusta el fútbol"); assert.equal(es1.data.state.msgs[1].sug[0].text, "¡Sí, me encanta!");
-assert.equal((await call("me")).data.state.msgs[0].text, "Cool! What do you do?", "Sam continua igual");
+assert.equal((await call("me")).data.state.msgs[0].text, lianeFirst, "Sam continua igual");
 const esTts = await call("tts", { text: "Hola", lang: "es" }); assert.equal(new TextDecoder().decode(esTts.data), "fake-mp3", "espanhol: voz Aura-2-es");
 
 // exportação: só o dono, sem nomes

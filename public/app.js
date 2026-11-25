@@ -42,12 +42,12 @@ async function api(path, body, raw) {
 function showLogin() { me = null; $("#app").hidden = true; $("#login").hidden = false; $("#fLogin").hidden = false; $("#fTotp").hidden = true; }
 function showApp(d) {
   me = d.user; S = d.state; $("#login").hidden = true; $("#app").hidden = false;
-  if (lang === "ja" && d.lang !== "ja") { api("me").then(x => { if (x.user) { S = x.state; applyLang(); } }).catch(() => {}); }
+  if (lang !== "en" && d.lang !== lang) { api("me").then(x => { if (x.user) { S = x.state; applyLang(); watchPending(); } }).catch(() => {}); }
   $("#av").innerHTML = me.avatar ? `<img alt="" src="/img/${encodeURIComponent(me.avatar)}">` : esc((me.nick || "?").slice(0, 1).toUpperCase());
   $("#who").textContent = `Conectado como ${me.nick} (${me.username})`;
   $("#pwBox").hidden = !me.local;
   $("#exportBtn").hidden = !me.owner;
-  applyLang();
+  applyLang(); watchPending();
 }
 // nome do site muda com o professor
 function applyTitle() {
@@ -75,7 +75,7 @@ async function switchLang(l) {
   if (l === lang || busy) return;
   if (rec) await stopRec(); stopSpeak(); handsFree = false; sys = null; practice = {}; setStatus("");
   lang = l; store.set("lang", l); busy = true; applyLang();
-  try { const d = await api("me"); busy = false; if (d.user) { S = d.state; applyLang(); } }
+  try { const d = await api("me"); busy = false; if (d.user) { S = d.state; applyLang(); watchPending(); } }
   catch (x) { busy = false; render(); setStatus(x.message); }
 }
 $("#fLogin").addEventListener("submit", async e => {
@@ -119,6 +119,7 @@ const showPtOf = m => m.showPt ?? (lang === "ja" && P.ptAlways);
 // sugestões de resposta (só na última fala do professor)
 const sugOn = () => store.get("sug_" + lang, true);
 function sugHtml(m) {
+  if (sugOn() && (!m.sug || !m.sug.length) && isPending(m)) return '<div class="sugs"><span class="lbl wait">Criando sugestões de resposta…</span></div>';
   if (!m.sug || !m.sug.length || !sugOn()) return "";
   return `<div class="sugs"><span class="lbl">Você pode responder (toque em Falar e repita):</span>${m.sug.map((x, k) => {
     const key = "sug:" + m.id + ":" + k, on = rec && target === key;
@@ -130,6 +131,28 @@ let pendingSug = null;
 function aiHtml(m) {
   const sp = showPtOf(m);
   return `<div class="msg ai"><div class="bub">${tx(m.text)}${rom(m.romaji)}</div><div class="tools"><button data-say="${m.id}">Ouvir de novo</button>${m.simple ? "" : `<button data-simple="${m.id}">${waiting === m.id ? "Simplificando…" : "Não entendi"}</button>`}${m.pt ? `<button data-pt="${m.id}">${sp ? "Esconder tradução" : "Tradução"}</button>` : ""}</div>${sp && m.pt ? `<div class="pt">${esc(m.pt)}</div>` : ""}${m.simple ? `<div class="simple"><span class="lbl">Mais simples</span><span class="en">${tx(m.simple.simple_en)}</span>${rom(m.simple.romaji)}${m.simple.hint_pt ? `<span class="why">${esc(m.simple.hint_pt)}</span>` : ""}<div class="tools"><button data-saysimple="${m.id}">Ouvir</button></div></div>` : ""}</div>`;
+}
+
+// correções e sugestões chegam alguns segundos depois da resposta: busca de novo até ficarem prontas
+let pollT = null;
+function watchPending(tries = 0) {
+  clearTimeout(pollT);
+  if (!S || !S.msgs.some(isPending) || tries > 25) return;
+  pollT = setTimeout(async () => {
+    if (busy || waiting) return watchPending(tries + 1);
+    const l = lang;
+    try {
+      const d = await api("me"); if (!d.user || l !== lang || busy) return watchPending(tries + 1);
+      if (d.state.msgs.length !== S.msgs.length) return watchPending(tries + 1); // algo novo aconteceu no meio: espera
+      const view = new Map(S.msgs.map(m => [m.id, m.showPt]));
+      const sig = st => JSON.stringify(st.msgs.map(m => [m.id, !!m.fix, !!m.sug, m.pending || 0]));
+      const before = sig(S);
+      S = d.state; S.msgs.forEach(m => { if (view.get(m.id) !== undefined) m.showPt = view.get(m.id); });
+      const keep = main.scrollTop, atEnd = main.scrollHeight - main.scrollTop - main.clientHeight < 80;
+      if (sig(S) !== before) { render(); if (!atEnd) main.scrollTop = keep; }
+    } catch {}
+    watchPending(tries + 1);
+  }, tries < 6 ? 1000 : 2000);
 }
 
 // ---------- comandos do chat
@@ -180,8 +203,9 @@ menu.addEventListener("click", e => { const b = e.target.closest("button"); if (
 function moreHtml(x) {
   return `<div class="morebox"><span>${esc(x.explain_pt)}</span>${(x.examples || []).map(e => `<span class="exl"><b>${esc(e.emoji)} ${tx(e.en)}</b>${rom(e.romaji)}<i>${esc(e.pt)}</i></span>`).join("")}</div>`;
 }
+const isPending = m => m.pending && Date.now() - m.pending < 60000;
 function noteHtml(m) {
-  if (!m.fix) return "";
+  if (!m.fix) return isPending(m) ? '<div class="note clean wait">Conferindo a sua frase…</div>' : "";
   const it = m.fix.items || [];
   if (!it.length) return '<div class="note clean">Perfeito, nada a corrigir.</div>';
   const p = practice[m.id], recOn = rec && target === m.id;
@@ -199,6 +223,7 @@ async function talk(path, body) {
     const d = await api(path, body); S = d.state; busy = false;
     if (pendingSug) { const mine = [...S.msgs].reverse().find(m => m.role === "me"); if (mine) practice[mine.id + "#sug"] = pendingSug; pendingSug = null; }
     render(); const last = S.msgs[S.msgs.length - 1]; if (last && last.role === "ai") samSays(last.text);
+    watchPending();
   }
   catch (x) { busy = false; render(); setStatus(x.message); }
 }

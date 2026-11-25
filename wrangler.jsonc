@@ -15,6 +15,10 @@
     // Modelo do Sam no Workers AI (melhor em gramática) e o reserva, se o principal falhar.
     "MODEL": "@cf/openai/gpt-oss-120b",
     "FALLBACK_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    // Modelo da resposta (o que a pessoa espera). Vazio = usa o MODEL. Dá pra medir em /api/admin/speed.
+    "REPLY_MODEL": "",
+    // Quanto o modelo "pensa" nas correções (rodam em paralelo): low, medium ou high.
+    "CHECK_EFFORT": "medium",
     // Pedidos à IA por dia para cada amigo (protege a cota grátis da Cloudflare).
     "DAILY_LIMIT": "100"
   },
