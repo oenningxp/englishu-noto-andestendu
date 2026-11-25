@@ -47,7 +47,16 @@ function showApp(d) {
   $("#pwBox").hidden = !me.local;
   applyLang();
 }
+// nome do site muda com o professor
+function applyTitle() {
+  const [a, b] = lang === "ja" ? ["Japonese", "Understand"] : ["Englishu", "Andestêndu"];
+  document.querySelectorAll(".t1").forEach(e => e.textContent = a);
+  document.querySelectorAll(".t2").forEach(e => e.textContent = b);
+  document.title = `${a} 👎 ${b}`;
+}
+applyTitle();
 function applyLang() {
+  applyTitle();
   document.body.classList.toggle("ja", lang === "ja");
   document.body.classList.toggle("nofuri", lang === "ja" && !P.furi);
   document.body.classList.toggle("noromaji", lang === "ja" && !P.romaji);
