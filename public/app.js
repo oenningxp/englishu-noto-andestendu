@@ -1,7 +1,7 @@
 // Englishu Noto Andestêndu: tela do celular/computador.
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const TYPES = { grammar: "Gramática", pronunciation: "Pronúncia", vocab: "Naturalidade" };
+const TYPES = { grammar: "Gramática", pronunciation: "Pronúncia", vocab: "Vocabulário", register: "Formal × informal" };
 const chat = $("#chat"), main = $("#main"), inp = $("#inp"), mic = $("#mic"), statusEl = $("#status");
 let me = null, S = null, busy = false, waiting = "", practice = {}, rec = null, target = "chat";
 const setStatus = t => { statusEl.textContent = t || ""; };
@@ -66,7 +66,10 @@ function noteHtml(m) {
   const it = m.fix.items || [];
   if (!it.length) return '<div class="note clean">Perfeito, nada a corrigir.</div>';
   const p = practice[m.id], recOn = rec && target === m.id;
-  return `<div class="note">${it.map((c, k) => `<div class="it"><span class="tag">${esc(TYPES[c.type] || "Dica")}</span><span class="said">${esc(c.said)}</span> → <span class="better">${esc(c.better)}</span><span class="why">${esc(c.why_pt)}</span>${c.example ? `<span class="ex">Ex.: ${esc(c.example)}</span>` : ""}${c.more ? moreHtml(c.more) : `<button class="more" data-explain="${m.id}" data-idx="${k}">${waiting === m.id + ":" + k ? "Explicando…" : "Explicar de outro jeito"}</button>`}</div>`).join("")}
+  const tipOnly = it.every(c => c.type === "register");
+  return `<div class="note${tipOnly ? " tip" : ""}">${it.map((c, k) => `<div class="it${c.type === "register" ? " reg" : ""}"><span class="tag">${esc(TYPES[c.type] || "Dica")}</span>${c.type === "register"
+    ? `<span class="forms"><span><small>Formal</small> <b>${esc(c.better)}</b></span><span><small>Informal</small> <b>${esc(c.informal || c.said)}</b></span></span>`
+    : `<span class="said">${esc(c.said)}</span> → <span class="better">${esc(c.better)}</span>${c.informal ? `<span class="inf"><small>Informal</small> ${esc(c.informal)}</span>` : ""}`}<span class="why">${esc(c.why_pt)}</span>${c.example ? `<span class="ex">Ex.: ${esc(c.example)}</span>` : ""}${c.more ? moreHtml(c.more) : `<button class="more" data-explain="${m.id}" data-idx="${k}">${waiting === m.id + ":" + k ? "Explicando…" : "Explicar de outro jeito"}</button>`}</div>`).join("")}
   ${m.fix.corrected ? `<div class="fixed">${esc(m.fix.corrected)}</div><div class="row"><button class="alt" data-hear="${m.id}">Ouvir certo</button><button class="${recOn ? "rec" : ""}" data-prac="${m.id}">${recOn ? "Parar e conferir" : "Repetir em voz alta"}</button></div>` : ""}
   ${p ? `<div class="score">${p}</div>` : ""}</div>`;
 }

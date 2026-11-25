@@ -39,3 +39,12 @@ assert.equal(parseReply({ reply: "ok", corrections: [{ type: "grammar", said: "a
 assert.equal(parseExplain({ explain_pt: "Fácil.", examples: [{ en: "Ask me.", pt: "Me pergunte.", emoji: "🙋" }] }).examples[0].emoji, "🙋");
 assert.equal(parseSimplify({ simple_en: "" }), null);
 console.log("formatos ok");
+
+// formal × informal
+const reg = parseReply({ reply: "Hi!", corrections: [{ type: "register", said: "u", better: "you", informal: "u", why_pt: "chat", example: "How about you?" }, { type: "grammar", said: "ok", better: "okay", why_pt: "x" }], corrected: "How about you?" });
+assert.equal(reg.corrections.length, 1, "ok → okay não é correção");
+assert.equal(reg.corrections[0].type, "register");
+assert.equal(reg.corrected, "", "só dica de formal/informal: sem frase para treinar");
+const both = parseReply({ reply: "Hi!", corrections: [{ type: "grammar", said: "I go travel", better: "I'm going to travel", informal: "I'm gonna travel", why_pt: "x" }], corrected: "I'm going to travel." });
+assert.equal(both.corrections[0].informal, "I'm gonna travel"); assert.equal(both.corrected, "I'm going to travel.");
+console.log("informal ok");

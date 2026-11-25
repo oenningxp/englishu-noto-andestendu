@@ -69,6 +69,11 @@ main{overflow-y:auto;padding:16px max(4vw,14px) 24px;scroll-behavior:smooth}
 .note{background:var(--note);border-radius:14px;padding:10px 12px;font-size:15px;width:100%;max-width:520px;border-left:4px solid var(--red)}
 .note.clean{border:0;border-radius:0;background:transparent;padding:2px 4px;font-size:13px;color:var(--ok);text-align:end}
 .it{padding:6px 0;border-bottom:1px dashed var(--line)}.it:last-of-type{border:0}
+.note.tip{background:var(--sam);color:var(--samink);border-left-color:var(--blue)}
+.it.reg .tag{color:light-dark(var(--blue),#8fb0ff)}
+.forms{display:flex;flex-wrap:wrap;gap:4px 14px;margin:2px 0}
+.forms small,.inf small{font-size:11px;font-weight:800;text-transform:none;opacity:.7;margin-right:4px}
+.inf{display:block;font-size:14px;margin-top:2px}
 .tag{font-size:12px;font-weight:800;color:var(--red);margin-right:6px}
 .said{text-decoration:line-through;text-decoration-color:var(--red);color:var(--mute)}
 .better{font-weight:800}
@@ -103,3 +108,4 @@ footer{border-top:1px solid var(--line);padding:8px max(4vw,14px) calc(10px + en
 button:disabled{opacity:.45;cursor:default}
 #status{max-width:720px;margin:0 auto 6px;font-size:13px;color:var(--mute);min-height:18px}
 @media(prefers-reduced-motion:reduce){.typing i{animation:none}main{scroll-behavior:auto}#mic{transition:none}}
+.note.tip .more{color:light-dark(var(--blue),#8fb0ff)}

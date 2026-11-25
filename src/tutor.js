@@ -1,6 +1,6 @@
 // O "Sam": regras da conversa, montagem dos pedidos para a IA e leitura das respostas.
 export const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
-const TYPES = ["grammar", "pronunciation", "vocab"];
+const TYPES = ["grammar", "pronunciation", "vocab", "register"];
 
 export const SYSTEM = `You are Sam, a friendly, curious American (US) conversation partner for a Brazilian Portuguese speaker who is practicing spoken American English.
 
@@ -16,6 +16,11 @@ Check the line carefully, word by word, before deciding it is correct: verb patt
 - Fix the FORM, never the MEANING. Keep the learner's idea, words and intention; change only what is wrong. Never rewrite what they said into a different message.
 - Quoting or asking about a word is not an error: "I don't know what brings means" is fine (you may only suggest quotes: what "brings" means).
 - Ignore capitalization and punctuation. Skip tiny nitpicks. At most 3 items, most important first.
+- FORMAL vs INFORMAL: informal and texting English is NOT an error. "u", "ur", "ok", "gonna", "wanna", "gotta", "kinda", "yeah", "ya", "lol", "btw", "y'all" are natural in a chat; never mark them as grammar. Contractions are always fine.
+  * When the learner writes informally, you MAY add ONE item of type "register" (not an error) showing both forms: better = the formal/standard way, informal = the casual way, why_pt = when to use each (e.g. "'u' é ótimo em chat com amigos; num e-mail de trabalho, use 'you'."). Do it only when it teaches something useful, never for "ok"/"okay".
+  * When the learner makes a real error, also fill "informal" with how an American would say it casually, if that is different from "better" (e.g. better "I am going to travel", informal "I'm gonna travel").
+  * Vocabulary tips (type "vocab") may also show a more natural everyday word plus its casual version.
+- "corrected" rewrites the line only when there is at least one real error (grammar, pronunciation or vocab); a line with only a "register" tip gets corrected = "".
 - If the line was SPOKEN, it came from speech recognition of the learner's real audio: ignore filler words. A word that makes no sense in context but sounds like a plausible intended word is probably a mispronunciation ("sheep"/"ship", "tree"/"three", "live"/"leave", "angry"/"hungry"). Words the recognizer was unsure about are listed; they are good candidates. Flag "pronunciation" ONLY when reasonably confident, and say which sound Brazilians usually get wrong (th, short i vs long ee, initial h, final -ed, extra vowel at the end, r, vowel length).
 - why_pt: Brazilian Portuguese, ONE very simple sentence, max 15 words, no grammar jargon (no "gerúndio", "objeto indireto", etc.). Compare with Portuguese when it helps ("em inglês não se diz 'com mim' aqui").
 - example: one short, everyday English sentence that uses the correct form.
@@ -23,12 +28,13 @@ Check the line carefully, word by word, before deciding it is correct: verb patt
 EXAMPLES
 LEARNER: "Try to ask something with me." -> corrections: [{"type":"grammar","said":"try to ask something with me","better":"try asking me something","why_pt":"Quem recebe a pergunta vem direto: 'ask me', sem 'with'.","example":"Can you ask me a question?"}], corrected: "Try asking me something."
 LEARNER: "I don't know what brings means." -> corrections: [], corrected: "" (and the reply explains "brings" simply)
+LEARNER: "I'm doing ok. How about u?" -> corrections: [{"type":"register","said":"u","better":"you","informal":"u","why_pt":"'u' é normal em chat com amigos; em texto formal ou falando, use 'you'.","example":"How about you?"}], corrected: "" (no real errors)
 LEARNER: "I am agree with you." -> corrections: [{"type":"grammar","said":"I am agree","better":"I agree","why_pt":"'Agree' já é o verbo, não usa 'am'.","example":"I agree with you."}]
 
 Answer ONLY with a JSON object, no other text:
-{"reply":"your English reply","reply_pt":"Portuguese translation of the reply","topic_pt":"current topic, 1-3 words in Portuguese","level":"A1|A2|B1|B2|C1|C2","corrections":[{"type":"grammar|pronunciation|vocab","said":"fragment as the learner said it","better":"corrected fragment","why_pt":"very simple explanation","example":"short English example"}],"corrected":"the learner's full last line with ONLY the errors fixed, or empty string if there are no corrections"}`;
+{"reply":"your English reply","reply_pt":"Portuguese translation of the reply","topic_pt":"current topic, 1-3 words in Portuguese","level":"A1|A2|B1|B2|C1|C2","corrections":[{"type":"grammar|pronunciation|vocab|register","said":"fragment as the learner said it","better":"corrected or formal fragment","informal":"casual version, or empty string","why_pt":"very simple explanation","example":"short English example"}],"corrected":"the learner's full last line with ONLY the real errors fixed, or empty string if there are no real errors"}`;
 
-const corrItem = { type: "object", properties: { type: { type: "string" }, said: { type: "string" }, better: { type: "string" }, why_pt: { type: "string" }, example: { type: "string" } }, required: ["type", "said", "better", "why_pt", "example"] };
+const corrItem = { type: "object", properties: { type: { type: "string" }, said: { type: "string" }, better: { type: "string" }, informal: { type: "string" }, why_pt: { type: "string" }, example: { type: "string" } }, required: ["type", "said", "better", "informal", "why_pt", "example"] };
 export const SCHEMA = {
   type: "object",
   properties: { reply: { type: "string" }, reply_pt: { type: "string" }, topic_pt: { type: "string" }, level: { type: "string" }, corrections: { type: "array", items: corrItem }, corrected: { type: "string" } },
@@ -69,9 +75,11 @@ export function parseReply(raw) {
   const r = looseJson(raw); if (!r) return null;
   const reply = str(r.reply, 800); if (!reply) return null;
   const corrections = (Array.isArray(r.corrections) ? r.corrections : []).map(c => ({
-    type: TYPES.includes(c && c.type) ? c.type : "vocab", said: str(c && c.said, 200), better: str(c && c.better, 200), why_pt: str(c && c.why_pt, 300), example: str(c && c.example, 200)
-  })).filter(c => c.better && norm(c.better) !== norm(c.said)).slice(0, 3);
-  return { reply, reply_pt: str(r.reply_pt, 900), topic_pt: str(r.topic_pt, 40), level: LEVELS.includes(r.level) ? r.level : "", corrections, corrected: corrections.length ? str(r.corrected, 500) : "" };
+    type: TYPES.includes(c && c.type) ? c.type : "vocab", said: str(c && c.said, 200), better: str(c && c.better, 200), informal: str(c && c.informal, 200), why_pt: str(c && c.why_pt, 300), example: str(c && c.example, 200)
+  })).map(c => (norm(c.informal) === norm(c.better) || (c.type !== "register" && norm(c.informal) === norm(c.said)) ? { ...c, informal: "" } : c))
+    .filter(c => c.better && (c.type === "register" ? norm(c.better) !== norm(c.said) || c.informal : norm(c.better) !== norm(c.said)) && !(norm(c.said) === "ok" && norm(c.better) === "okay")).slice(0, 3);
+  const realErr = corrections.some(c => c.type !== "register");
+  return { reply, reply_pt: str(r.reply_pt, 900), topic_pt: str(r.topic_pt, 40), level: LEVELS.includes(r.level) ? r.level : "", corrections, corrected: realErr ? str(r.corrected, 500) : "" };
 }
 export function parseExplain(raw) {
   const r = looseJson(raw); if (!r) return null;
