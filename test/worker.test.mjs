@@ -21,10 +21,7 @@ const calls = [];
 const AI = { run: async (model, input) => {
   calls.push(model);
   if (model.includes("whisper")) return { text: " I live in a big sheep ", segments: [{ words: [{ word: "sheep", probability: 0.4 }] }] };
-  if (model.includes("melotts")) {
-    if (input.lang === "ja") throw new Error("lang não suportado"); // simula: só "jp" funciona
-    return { audio: btoa(input.lang === "jp" ? "J".repeat(2000) : "fake-mp3") };
-  }
+  if (model.includes("aura")) return new Response("fake-mp3").body;
   const sys = input.messages[0].content;
   if (sys.startsWith("You are Nii")) return { response: { reply: "こんにちは！ブラジル人{じん}ですか？", romaji: "Konnichiwa! Burajirujin desu ka?", reply_pt: "Oi! Você é brasileiro?", topic_pt: "Apresentação", level: "Iniciante", corrections: [], corrected: "", corrected_romaji: "" } };
   if (sys.startsWith("You help a Brazilian")) return { output: [{ type: "message", content: [{ type: "output_text", text: '{"explain_pt":"Mais fácil.","examples":[{"en":"I live on a ship.","pt":"Moro num navio.","emoji":"🚢"}]}' }] }] };
@@ -67,7 +64,7 @@ const sm = await call("simplify", { id: ex.data.state.msgs[2].id });
 assert.equal(sm.data.state.msgs[2].simple.hint_pt, "job = trabalho");
 assert.equal((await call("simplify", { id: mine.id })).status, 400, "só falas do Sam");
 assert.equal((await call("chat", { text: "again" })).status, 429, "limite diário do amigo (4)");
-const tts = await call("tts", { text: "Hello" }); assert.equal(new TextDecoder().decode(tts.data), "fake-mp3");
+assert.equal((await call("tts", { text: "Hello" })).status, 429, "voz do servidor conta no limite do dia");
 assert.equal((await call("settings", { voice: "phone", rate: 5, auto: false })).data.settings.rate, 1.3);
 assert.equal((await call("me")).data.state.msgs.length, 3, "a conversa fica salva no servidor");
 assert.equal((await call("reset", {})).data.state.msgs.length, 0);
@@ -105,7 +102,8 @@ assert.ok((await call("cmd", { cmd: "save", lang: "ja" })).data.state.chatId);
 assert.equal((await call("chats")).data.chats.length, 0, "conversas salvas do Sam não mostram as do Nii");
 const r2 = await worker.fetch(new Request("https://papo.test/api/chats?lang=ja", { headers: { Cookie: cookie } }), env);
 assert.equal((await r2.json()).chats.length, 1);
-const jtts = await call("tts", { text: "私{わたし}です", lang: "ja" }); assert.equal(jtts.data.byteLength, 2000, "voz japonesa: tenta ja, cai pro jp");
+assert.equal((await call("tts", { text: "私{わたし}です", lang: "ja" })).status, 501, "japonês: voz do aparelho");
+const tts = await call("tts", { text: "Hello" }); assert.equal(new TextDecoder().decode(tts.data), "fake-mp3", "inglês: Aura");
 assert.equal((await call("tts-check")).status, 403, "diagnóstico só pro dono");
 
 // contas só do Englishu (sem 2FA)

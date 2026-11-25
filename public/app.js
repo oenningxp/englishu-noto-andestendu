@@ -204,7 +204,7 @@ async function speak(text) {
   if (!text) return; stopSpeak();
   if (lang === "ja") text = plainJ(text);
   const key = lang + "|" + text;
-  if (S.settings.voice === "server") {
+  if (S.settings.voice === "server" && lang === "en") {
     try {
       let url = audioCache.get(key);
       if (!url) { url = URL.createObjectURL(await api("tts", { text })); audioCache.set(key, url); }
@@ -216,8 +216,10 @@ async function speak(text) {
   try {
     const L = lang === "ja" ? "ja-JP" : "en-US";
     const u = new SpeechSynthesisUtterance(text); u.lang = L; u.rate = S.settings.rate;
-    const voices = speechSynthesis.getVoices();
-    const v = voices.find(v => v.lang === L || v.lang === L.replace("-", "_")) || voices.find(v => v.lang.toLowerCase().startsWith(L.slice(0, 2))); if (v) u.voice = v;
+    const voices = speechSynthesis.getVoices(), same = v => v.lang === L || v.lang === L.replace("-", "_");
+    // prefere as vozes mais naturais (Google / "Natural" / "Online") do idioma
+    const good = v => /google|natural|online|premium|enhanced/i.test(v.name);
+    const v = voices.find(v => same(v) && good(v)) || voices.find(same) || voices.find(v => v.lang.toLowerCase().startsWith(L.slice(0, 2))); if (v) u.voice = v;
     if (lang === "ja" && voices.length && !v) setStatus("Sem voz japonesa no aparelho. No Android: Configurações → Idioma → Saída de texto para fala → Google → instalar Japonês.");
     const done = new Promise(res => { u.onend = res; u.onerror = res; setTimeout(res, 2000 + text.length * 120); });
     speechSynthesis.speak(u); await done;

@@ -11,7 +11,7 @@ const TUTORS = {
 };
 
 const SESSION_DAYS = 30, MAX_MSGS = 200, MAX_AUDIO = 3 * 1024 * 1024;
-const STT_MODEL = "@cf/openai/whisper-large-v3-turbo", TTS_MODEL = "@cf/myshell-ai/melotts";
+const STT_MODEL = "@cf/openai/whisper-large-v3-turbo", TTS_MODEL = "@cf/deepgram/aura-2-en", TTS_SPEAKER = "arcas";
 const json = (data, status = 200, headers = {}) => Response.json(data, { status, headers });
 const err = (msg, status = 400) => json({ error: msg }, status);
 const QUOTA = "A cota grátis de IA de hoje acabou. Ela volta às 21h (horário de Brasília).";
@@ -97,14 +97,16 @@ async function registerFail(env, id, table = "users") {
 }
 
 // ---------- estado da conversa (fica no servidor: celular e computador veem a mesma)
-const blank = () => ({ msgs: [], topic: "", level: "", n: 0, chatId: null, dirty: false, settings: { voice: "server", rate: 0.95, auto: true } });
+const blank = () => ({ msgs: [], topic: "", level: "", n: 0, chatId: null, dirty: false, settings: { voice: "phone", rate: 0.95, auto: true, v: 2 } });
 // conversa nova mantendo o que é da pessoa (nível e ajustes)
 const fresh = st => ({ ...blank(), level: st.level, settings: st.settings });
 const MAX_SAVED = 30;
 const chatTitle = st => (st.topic || "Conversa") + " · " + new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10).split("-").reverse().join("/");
 async function loadState(env, uid) {
   const r = await env.DB.prepare("SELECT data FROM papo_state WHERE user_id=?").bind(uid).first();
-  try { return r ? { ...blank(), ...JSON.parse(r.data) } : blank(); } catch { return blank(); }
+  let st; try { st = r ? { ...blank(), ...JSON.parse(r.data) } : blank(); } catch { st = blank(); }
+  if (!st.settings.v) st.settings = { ...st.settings, voice: "phone", v: 2 }; // a voz antiga do servidor saiu do ar: volta pra do aparelho
+  return st;
 }
 async function saveState(env, uid, st) {
   st.msgs = st.msgs.slice(-MAX_MSGS);
@@ -138,9 +140,8 @@ async function aiJson(env, system, user, schema, parse, maxTokens = 1400) {
   return null;
 }
 const askTutor = (env, T, nick, st, opts) => aiJson(env, T.system(nick), T.buildPrompt(st, opts), T.SCHEMA, T.parseReply);
-// voz do servidor (MeloTTS). Para japonês testa os códigos de idioma até um funcionar e lembra qual foi.
-const TTS_CODES = { en: ["en"], ja: ["ja", "jp", "JP"] };
-let jaCode = null;
+// voz do servidor: Deepgram Aura-2 (só inglês; o MeloTTS foi desativado pela Cloudflare em 20/11/2026).
+// Japonês não tem voz no servidor: o app usa a voz japonesa do aparelho.
 async function toBytes(r) {
   const a = r && r.audio !== undefined ? r.audio : r;
   if (typeof a === "string") return Uint8Array.from(atob(a), c => c.charCodeAt(0));
@@ -149,16 +150,12 @@ async function toBytes(r) {
   if (a instanceof ReadableStream) return new Uint8Array(await new Response(a).arrayBuffer());
   return null;
 }
-async function melo(env, text, lang) {
-  const codes = lang === "ja" && jaCode ? [jaCode] : TTS_CODES[lang] || ["en"], tried = [];
-  for (const code of codes) {
-    try {
-      const bytes = await toBytes(await env.AI.run(TTS_MODEL, { prompt: text, lang: code }));
-      const size = bytes ? bytes.byteLength : 0; tried.push({ code, size });
-      if (size > (lang === "ja" ? 1500 : 0)) { if (lang === "ja") jaCode = code; return { bytes, tried }; }
-    } catch (e) { if (quotaErr(e)) throw e; tried.push({ code, error: String(e && e.message || e).slice(0, 300) }); }
-  }
-  return { bytes: null, tried };
+async function serverVoice(env, text, lang) {
+  if (lang !== "en") return { bytes: null, tried: [{ model: "nenhum", error: "sem voz japonesa no servidor" }] };
+  try {
+    const bytes = await toBytes(await env.AI.run(TTS_MODEL, { text, speaker: TTS_SPEAKER, encoding: "mp3" }));
+    return { bytes: bytes && bytes.byteLength ? bytes : null, tried: [{ model: TTS_MODEL, size: bytes ? bytes.byteLength : 0 }] };
+  } catch (e) { if (quotaErr(e)) throw e; return { bytes: null, tried: [{ model: TTS_MODEL, error: String(e && e.message || e).slice(0, 300) }] }; }
 }
 const b64 = buf => { let s = ""; const a = new Uint8Array(buf); for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode(...a.subarray(i, i + 0x8000)); return btoa(s); };
 
@@ -314,7 +311,7 @@ async function api(req, env, path) {
   if (path === "reset" && method === "POST") { const st = await loadState(env, sk), nst = blank(); nst.settings = st.settings; nst.level = st.level; await saveState(env, sk, nst); return json({ state: nst }); }
   if (path === "settings" && method === "POST") {
     const st = await loadState(env, sk), v = body || {};
-    st.settings = { voice: v.voice === "phone" ? "phone" : "server", rate: Math.min(1.3, Math.max(0.7, +v.rate || 0.95)), auto: v.auto !== false };
+    st.settings = { voice: v.voice === "server" ? "server" : "phone", rate: Math.min(1.3, Math.max(0.7, +v.rate || 0.95)), auto: v.auto !== false, v: 2 };
     await saveState(env, sk, st); return json({ settings: st.settings });
   }
 
@@ -330,7 +327,9 @@ async function api(req, env, path) {
   if (path === "tts" && method === "POST") {
     const text = T.plain(String(body.text || "")).trim().slice(0, 600); if (!text) return err("Sem texto.");
     try {
-      const { bytes } = await melo(env, text, lang);
+      if (lang !== "en") return err("Sem voz japonesa no servidor.", 501);
+      if (!(await useQuota(env, s))) return err("Você chegou no limite de hoje. Use a voz do aparelho (Ajustes).", 429);
+      const { bytes } = await serverVoice(env, text, lang);
       if (!bytes) return err("Voz indisponível.", 502);
       return new Response(bytes, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "private, max-age=86400" } });
     } catch (e) { console.error(e); return err(quotaErr(e) ? QUOTA : "Voz indisponível.", quotaErr(e) ? 429 : 502); }
@@ -338,8 +337,7 @@ async function api(req, env, path) {
   // diagnóstico da voz (só o dono): /api/tts-check?lang=ja mostra o que o servidor conseguiu gerar
   if (path === "tts-check" && method === "GET") {
     if (!isOwner(env, s)) return err("Só o dono.", 403);
-    jaCode = null;
-    try { const { bytes, tried } = await melo(env, lang === "ja" ? "こんにちは。ニイです。よろしくおねがいします。" : "Hello! This is Sam.", lang); return json({ ok: !!bytes, tried }); }
+    try { const { bytes, tried } = await serverVoice(env, "Hello! This is Sam.", lang); return json({ ok: !!bytes, tried }); }
     catch (e) { return json({ ok: false, error: String(e && e.message || e) }); }
   }
   return err("não encontrado", 404);
