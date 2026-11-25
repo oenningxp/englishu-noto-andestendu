@@ -70,6 +70,25 @@ assert.equal((await call("reset", {})).data.state.msgs.length, 0);
 await call("logout", {}); assert.equal((await call("me")).data.user, null);
 const evil = await worker.fetch(new Request("https://papo.test/api/reset", { method: "POST", headers: { Origin: "https://mal.test" } }), env);
 assert.equal(evil.status, 403);
+// comandos do chat (usa a conta da Letícia, que ainda tem cota)
+cookie = ""; await call("login", { username: "leticia", password: "123456" });
+assert.equal((await call("cmd", { cmd: "save" })).data.note, "Não tem nada pra salvar ainda.");
+let th = await call("theme", { topic: "food and cooking" });
+assert.equal(th.status, 200); assert.equal(th.data.state.msgs.length, 1); assert.equal(th.data.state.dirty, true);
+assert.equal((await call("cmd", { cmd: "new" })).data.confirm, "new", "pede confirmação se não salvou");
+const sv = await call("cmd", { cmd: "save" }); assert.ok(sv.data.state.chatId); assert.equal(sv.data.state.dirty, false);
+const chatId = sv.data.state.chatId;
+assert.equal((await call("chats")).data.chats.length, 1);
+const nw = await call("cmd", { cmd: "new" }); assert.equal(nw.data.state.msgs.length, 0, "salva: abre nova direto"); assert.equal(nw.data.state.chatId, null);
+const op = await call("open", { id: chatId }); assert.equal(op.data.state.msgs.length, 1); assert.equal(op.data.state.chatId, chatId);
+const cl = await call("cmd", { cmd: "clear" }); assert.equal(cl.data.state.msgs.length, 0); assert.equal(cl.data.state.chatId, chatId);
+assert.equal((await call("open", { id: chatId })).data.state.msgs.length, 1, "/clear não mexe na cópia salva");
+assert.equal((await call("cmd", { cmd: "delete" })).data.confirm, "delete");
+const dl = await call("cmd", { cmd: "delete", force: true }); assert.equal(dl.data.state.msgs.length, 0);
+assert.equal((await call("chats")).data.chats.length, 0, "/delete apaga a salva");
+assert.equal((await call("open", { id: chatId })).status, 404);
+assert.equal((await call("cmd", { cmd: "xyz" })).status, 400);
+
 // contas só do Englishu (sem 2FA)
 cookie = "";
 assert.equal((await call("login", { username: "Amanda", password: "errada" })).status, 401);

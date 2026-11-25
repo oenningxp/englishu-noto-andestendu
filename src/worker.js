@@ -41,6 +41,7 @@ async function ensureTables(env) {
   await env.DB.batch([
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, stage TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_state (user_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL)"),
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_chats (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_usage (user_id TEXT NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (user_id, day))"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS login_fails (k TEXT PRIMARY KEY, n INTEGER NOT NULL, since INTEGER NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, nick TEXT NOT NULL, pass_hash TEXT NOT NULL, pass_salt TEXT NOT NULL, fail_count INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)")
@@ -87,7 +88,11 @@ async function registerFail(env, id, table = "users") {
 }
 
 // ---------- estado da conversa (fica no servidor: celular e computador veem a mesma)
-const blank = () => ({ msgs: [], topic: "", level: "", n: 0, settings: { voice: "server", rate: 0.95, auto: true } });
+const blank = () => ({ msgs: [], topic: "", level: "", n: 0, chatId: null, dirty: false, settings: { voice: "server", rate: 0.95, auto: true } });
+// conversa nova mantendo o que é da pessoa (nível e ajustes)
+const fresh = st => ({ ...blank(), level: st.level, settings: st.settings });
+const MAX_SAVED = 30;
+const chatTitle = st => (st.topic || "Conversa") + " · " + new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10).split("-").reverse().join("/");
 async function loadState(env, uid) {
   const r = await env.DB.prepare("SELECT data FROM papo_state WHERE user_id=?").bind(uid).first();
   try { return r ? { ...blank(), ...JSON.parse(r.data) } : blank(); } catch { return blank(); }
@@ -181,9 +186,13 @@ async function api(req, env, path) {
   if (path === "me") return json({ user: meOut(env, s), state: await loadState(env, s.id) });
 
   // --- conversa
-  if ((path === "chat" || path === "skip") && method === "POST") {
+  if ((path === "chat" || path === "skip" || path === "theme") && method === "POST") {
     const st = await loadState(env, s.id); let extra = "", unsure = [];
-    if (path === "chat") {
+    if (path === "theme") {
+      const topic = String(body.topic || "").replace(/[\r\n"]+/g, " ").trim().slice(0, 60);
+      if (!topic) return err("Escolha um tema.");
+      extra = `The learner chose the topic "${topic}". ${st.msgs.length ? "Switch to it now with a short, natural transition" : "Greet the learner briefly and start"} talking about it with one easy, open question about it. Set topic_pt to this topic in Portuguese. Return an empty corrections list.`;
+    } else if (path === "chat") {
       const text = String(body.text || "").replace(/\s+/g, " ").trim().slice(0, 600);
       if (text) { st.msgs.push({ role: "me", id: "m" + (++st.n), text, spoken: !!body.spoken }); unsure = Array.isArray(body.unsure) ? body.unsure.map(String).slice(0, 10) : []; }
       else if (st.msgs.length) return err("Mensagem vazia.");
@@ -198,6 +207,7 @@ async function api(req, env, path) {
     if (r.topic_pt) st.topic = r.topic_pt;
     if (r.level) st.level = r.level;
     st.msgs.push({ role: "ai", id: "m" + (++st.n), text: r.reply, pt: r.reply_pt });
+    st.dirty = true;
     await saveState(env, s.id, st);
     return json({ state: st });
   }
@@ -219,8 +229,54 @@ async function api(req, env, path) {
     if (!(await useQuota(env, s))) return err("Você chegou no limite de falas de hoje. Amanhã tem mais!", 429);
     try { if (!(await task())) return err("Não consegui explicar agora. Tente de novo.", 502); }
     catch (e) { console.error(e); return err(quotaErr(e) ? QUOTA : "Não consegui explicar agora. Tente de novo.", quotaErr(e) ? 429 : 502); }
+    st.dirty = true;
     await saveState(env, s.id, st);
     return json({ state: st });
+  }
+  // --- comandos do chat (/new /clear /save /delete) e conversas salvas
+  if (path === "cmd" && method === "POST") {
+    const st = await loadState(env, s.id), cmd = String(body.cmd || "");
+    const unsaved = st.msgs.length > 0 && (st.dirty || !st.chatId);
+    if (cmd === "save") {
+      if (!st.msgs.length) return json({ state: st, note: "Não tem nada pra salvar ainda." });
+      const now = Date.now(), title = chatTitle(st);
+      if (st.chatId && await env.DB.prepare("SELECT 1 FROM papo_chats WHERE id=? AND user_id=?").bind(st.chatId, s.id).first()) {
+        st.dirty = false;
+        await env.DB.prepare("UPDATE papo_chats SET title=?, data=?, updated_at=? WHERE id=? AND user_id=?").bind(title, JSON.stringify({ msgs: st.msgs, topic: st.topic, n: st.n }), now, st.chatId, s.id).run();
+      } else {
+        const c = await env.DB.prepare("SELECT COUNT(*) AS n FROM papo_chats WHERE user_id=?").bind(s.id).first();
+        if (c && c.n >= MAX_SAVED) return json({ state: st, note: `Você já tem ${MAX_SAVED} conversas salvas. Apague alguma (abra e use /delete) antes de salvar outra.` });
+        st.chatId = "c" + randomToken(9); st.dirty = false;
+        await env.DB.prepare("INSERT INTO papo_chats (id,user_id,title,data,created_at,updated_at) VALUES (?,?,?,?,?,?)").bind(st.chatId, s.id, title, JSON.stringify({ msgs: st.msgs, topic: st.topic, n: st.n }), now, now).run();
+      }
+      await saveState(env, s.id, st);
+      return json({ state: st, note: `Conversa salva como "${title}". Ela fica em Ajustes → Conversas salvas.` });
+    }
+    if (cmd === "new" || cmd === "clear" || cmd === "delete") {
+      if (cmd === "new" && unsaved && !body.force) return json({ state: st, confirm: "new", note: "Esta conversa não foi salva. Quer salvar antes de abrir uma nova?" });
+      if (cmd === "delete" && st.msgs.length && !body.force) return json({ state: st, confirm: "delete", note: st.chatId ? "Apagar esta conversa, inclusive a cópia salva? Não dá pra desfazer." : "Apagar esta conversa? Não dá pra desfazer." });
+      if (cmd === "delete" && st.chatId) await env.DB.prepare("DELETE FROM papo_chats WHERE id=? AND user_id=?").bind(st.chatId, s.id).run();
+      let nst;
+      if (cmd === "clear") { nst = { ...st, msgs: [], topic: "", n: st.n, dirty: !!st.chatId }; } // a cópia salva só muda se você usar /save de novo
+      else nst = fresh(st);
+      await saveState(env, s.id, nst);
+      return json({ state: nst, note: cmd === "new" ? "Conversa nova aberta." : cmd === "clear" ? "Conversa limpa." : "Conversa apagada." });
+    }
+    return err("Comando desconhecido.");
+  }
+  if (path === "chats" && method === "GET") {
+    const r = await env.DB.prepare("SELECT id,title,updated_at FROM papo_chats WHERE user_id=? ORDER BY updated_at DESC LIMIT ?").bind(s.id, MAX_SAVED).all();
+    return json({ chats: r.results || [] });
+  }
+  if (path === "open" && method === "POST") {
+    const st = await loadState(env, s.id);
+    const c = await env.DB.prepare("SELECT * FROM papo_chats WHERE id=? AND user_id=?").bind(String(body.id || ""), s.id).first();
+    if (!c) return err("Conversa não encontrada.", 404);
+    if (st.msgs.length && (st.dirty || !st.chatId) && st.chatId !== c.id && !body.force) return json({ state: st, confirm: "open", note: "A conversa atual não foi salva. Abrir mesmo assim?" });
+    let d = {}; try { d = JSON.parse(c.data); } catch {}
+    const nst = { ...fresh(st), msgs: d.msgs || [], topic: d.topic || "", n: d.n || 0, chatId: c.id, dirty: false };
+    await saveState(env, s.id, nst);
+    return json({ state: nst, note: `Conversa "${c.title}" aberta.` });
   }
   if (path === "reset" && method === "POST") { const st = await loadState(env, s.id), nst = blank(); nst.settings = st.settings; nst.level = st.level; await saveState(env, s.id, nst); return json({ state: nst }); }
   if (path === "settings" && method === "POST") {

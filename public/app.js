@@ -3,7 +3,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const TYPES = { grammar: "Gramática", pronunciation: "Pronúncia", vocab: "Vocabulário", register: "Formal × informal" };
 const chat = $("#chat"), main = $("#main"), inp = $("#inp"), mic = $("#mic"), statusEl = $("#status");
-let me = null, S = null, busy = false, waiting = "", practice = {}, rec = null, target = "chat";
+let me = null, S = null, busy = false, waiting = "", sys = null, practice = {}, rec = null, target = "chat";
 const setStatus = t => { statusEl.textContent = t || ""; };
 
 async function api(path, body, raw) {
@@ -49,15 +49,61 @@ function render() {
   t.hidden = !S.topic; t.textContent = S.topic ? "Assunto: " + S.topic : "";
   l.hidden = !S.level; l.textContent = S.level ? "Nível " + S.level : "";
   if (!S.msgs.length) {
-    chat.innerHTML = `<div class="start"><h2>Pronto pra conversar com o Sam?</h2><p>Ele escolhe o assunto e puxa papo em inglês americano. Responda falando ou digitando; os deslizes aparecem corrigidos logo abaixo da sua fala.</p><button class="big" id="go" ${busy ? "disabled" : ""}>Começar conversa</button></div>`;
+    chat.innerHTML = `<div class="start"><h2>Pronto pra conversar com o Sam?</h2><p>Ele escolhe o assunto e puxa papo em inglês americano. Responda falando ou digitando; os deslizes aparecem corrigidos logo abaixo da sua fala.</p><button class="big" id="go" ${busy ? "disabled" : ""}>Começar conversa</button><p class="hint">Quer escolher o assunto? Digite <b>/theme</b>. Todos os comandos: <b>/help</b></p></div>${sysHtml()}`;
     return;
   }
   chat.innerHTML = S.msgs.map(m => m.role === "ai"
     ? `<div class="msg ai"><div class="bub">${esc(m.text)}</div><div class="tools"><button data-say="${m.id}">Ouvir de novo</button>${m.simple ? "" : `<button data-simple="${m.id}">${waiting === m.id ? "Simplificando…" : "Não entendi"}</button>`}${m.pt ? `<button data-pt="${m.id}">${m.showPt ? "Esconder tradução" : "Tradução"}</button>` : ""}</div>${m.showPt ? `<div class="pt">${esc(m.pt)}</div>` : ""}${m.simple ? `<div class="simple"><span class="lbl">Mais simples</span><span class="en">${esc(m.simple.simple_en)}</span>${m.simple.hint_pt ? `<span class="why">${esc(m.simple.hint_pt)}</span>` : ""}<div class="tools"><button data-saysimple="${m.id}">Ouvir</button></div></div>` : ""}</div>`
     : `<div class="msg mine"><div class="bub">${esc(m.text)}</div>${noteHtml(m)}</div>`).join("")
-    + (busy ? '<div class="typing">Sam está digitando <i></i><i></i><i></i></div>' : "");
+    + (busy ? '<div class="typing">Sam está digitando <i></i><i></i><i></i></div>' : "") + sysHtml();
   main.scrollTop = main.scrollHeight;
 }
+
+// ---------- comandos do chat
+const THEMES = [["🍔", "Comida", "food and cooking"], ["🎬", "Filmes e séries", "movies and TV shows"], ["✈️", "Viagens", "travel"], ["🎵", "Música", "music"],
+  ["💼", "Trabalho", "work and jobs"], ["⚽", "Esportes", "sports"], ["📱", "Tecnologia", "technology"], ["👨‍👩‍👧", "Família e amigos", "family and friends"],
+  ["🕗", "Rotina", "daily routine"], ["🛍️", "Compras", "shopping"], ["🐶", "Animais", "pets and animals"], ["🎮", "Games", "video games"],
+  ["🧘", "Saúde e bem-estar", "health and wellness"], ["🎉", "Festas e feriados", "parties and holidays"], ["🎲", "Surpresa", ""]];
+const CMDS = [["/new", "Abre um novo chat"], ["/clear", "Limpa o chat atual"], ["/save", "Salva o chat atual"], ["/delete", "Apaga o chat atual"], ["/theme", "Escolher o assunto da conversa"], ["/help", "Lista os comandos"]];
+function sysHtml() {
+  if (!sys) return "";
+  if (sys.kind === "themes") return `<div class="msg ai"><div class="bub">Sobre o que vamos conversar? Toque num tema 👇<br><small>(ou digite /theme e o assunto que quiser, ex.: /theme futebol)</small></div><div class="themes">${THEMES.map(([e, pt], i) => `<button class="theme" data-theme="${i}">${e} ${esc(pt)}</button>`).join("")}</div></div>`;
+  if (sys.kind === "help") return `<div class="sys"><b>Comandos</b>${CMDS.map(([c, d]) => `<span><code>${c}</code> ${esc(d)}</span>`).join("")}</div>`;
+  const btns = { new: [["save-new", "Salvar e abrir nova"], ["force-new", "Abrir sem salvar"]], delete: [["force-delete", "Apagar"]], open: [["force-open", "Abrir mesmo assim"]] }[sys.confirm] || [];
+  return `<div class="sys">${esc(sys.text)}${btns.length ? `<div class="row">${btns.map(([a, t]) => `<button data-act="${a}">${esc(t)}</button>`).join("")}<button class="alt" data-act="cancel">Cancelar</button></div>` : ""}</div>`;
+}
+async function command(name, body = {}) {
+  if (busy) return; busy = true; render();
+  try {
+    const d = await api("cmd", { cmd: name, ...body });
+    S = d.state; practice = {}; busy = false; sys = d.note ? { text: d.note, confirm: d.confirm || "" } : null;
+    if (sys && sys.confirm === "new") sys.thenNew = true;
+    render();
+  } catch (x) { busy = false; render(); setStatus(x.message); }
+}
+async function openChat(id, force) {
+  if (busy) return; busy = true; render();
+  try { const d = await api("open", { id, force: !!force }); S = d.state; practice = {}; busy = false; sys = d.note ? { text: d.note, confirm: d.confirm || "", openId: id } : null; render(); $("#set").classList.remove("on"); }
+  catch (x) { busy = false; render(); setStatus(x.message); }
+}
+function runSlash(text) {
+  const [c, ...rest] = text.trim().split(/\s+/), arg = rest.join(" "), cmd = c.toLowerCase();
+  inp.value = ""; hideMenu(); stopSpeak();
+  if (cmd === "/new" || cmd === "/clear" || cmd === "/save" || cmd === "/delete") return command(cmd.slice(1));
+  if (cmd === "/theme") { if (arg) { sys = null; return talk("theme", { topic: arg }); } sys = { kind: "themes" }; return render(); }
+  if (cmd === "/help") { sys = { kind: "help" }; return render(); }
+  sys = { text: `Não conheço o comando ${c}. Digite /help para ver a lista.` }; render();
+}
+const menu = document.createElement("div"); menu.className = "cmdmenu"; menu.hidden = true; $("#form").before(menu);
+function hideMenu() { menu.hidden = true; }
+function showMenu() {
+  const v = inp.value.trim().toLowerCase();
+  if (!v.startsWith("/") || v.includes(" ")) return hideMenu();
+  const list = CMDS.filter(([c]) => c.startsWith(v));
+  if (!list.length) return hideMenu();
+  menu.innerHTML = list.map(([c, d]) => `<button type="button" data-cmd="${c}"><code>${c}</code> ${esc(d)}</button>`).join(""); menu.hidden = false;
+}
+menu.addEventListener("click", e => { const b = e.target.closest("button"); if (b) runSlash(b.dataset.cmd); });
 function moreHtml(x) {
   return `<div class="morebox"><span>${esc(x.explain_pt)}</span>${(x.examples || []).map(e => `<span class="exl"><b>${esc(e.emoji)} ${esc(e.en)}</b><i>${esc(e.pt)}</i></span>`).join("")}</div>`;
 }
@@ -86,6 +132,8 @@ async function extraAsk(path, body, key, after) {
 }
 function send(text, spoken, unsure) {
   text = String(text || "").trim(); if (!text || busy) return;
+  if (text.startsWith("/")) return runSlash(text);
+  sys = null;
   S.msgs.push({ role: "me", id: "tmp", text, spoken }); inp.value = "";
   talk("chat", { text, spoken: !!spoken, unsure: unsure || [] }).then(() => { if (S.msgs.some(m => m.id === "tmp")) { S.msgs = S.msgs.filter(m => m.id !== "tmp"); inp.value = text; render(); } });
 }
@@ -171,12 +219,25 @@ function grade(id, said) {
 
 // ---------- eventos
 $("#form").addEventListener("submit", e => { e.preventDefault(); const sp = inp.dataset.spoken === "1"; let un = []; try { un = JSON.parse(inp.dataset.unsure || "[]"); } catch {} delete inp.dataset.spoken; delete inp.dataset.unsure; send(inp.value, sp, un); });
-inp.addEventListener("input", () => { delete inp.dataset.spoken; });
+inp.addEventListener("input", () => { delete inp.dataset.spoken; showMenu(); });
+inp.addEventListener("blur", () => setTimeout(hideMenu, 200));
 mic.addEventListener("click", () => startRec("chat"));
 chat.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
   const find = id => S.msgs.find(m => m.id === id);
-  if (b.id === "go") talk("chat", {});
+  if (b.id === "go") { sys = null; talk("chat", {}); }
+  else if (b.dataset.theme !== undefined) {
+    const [, pt, en] = THEMES[+b.dataset.theme]; sys = null;
+    talk("theme", { topic: en || pick(THEMES.filter(t => t[2]))[2] + " (surprise topic)" || pt });
+  }
+  else if (b.dataset.act) {
+    const a = b.dataset.act, openId = sys && sys.openId; sys = null;
+    if (a === "save-new") command("save").then(() => command("new", { force: true }));
+    else if (a === "force-new") command("new", { force: true });
+    else if (a === "force-delete") command("delete", { force: true });
+    else if (a === "force-open") openChat(openId, true);
+    else render();
+  }
   else if (b.dataset.say) speak(find(b.dataset.say)?.text);
   else if (b.dataset.saysimple) speak(find(b.dataset.saysimple)?.simple?.simple_en);
   else if (b.dataset.simple) extraAsk("simplify", { id: b.dataset.simple }, b.dataset.simple, () => { const m = find(b.dataset.simple); if (m && m.simple) speak(m.simple.simple_en); });
@@ -192,12 +253,17 @@ $("#rate").addEventListener("input", e => { S.settings.rate = +e.target.value; $
 $("#rate").addEventListener("change", saveSettings);
 $("#auto").addEventListener("change", e => { S.settings.auto = e.target.checked; saveSettings(); });
 $("#skip").addEventListener("click", () => { if (S.msgs.length) talk("skip", {}); });
-let armed = 0;
-$("#reset").addEventListener("click", async e => {
-  if (Date.now() - armed > 3000) { armed = Date.now(); e.target.textContent = "Toque de novo para apagar"; setTimeout(() => e.target.textContent = "Nova conversa", 3000); return; }
-  armed = 0; e.target.textContent = "Nova conversa"; stopSpeak(); practice = {};
-  try { S = (await api("reset", {})).state; render(); } catch (x) { setStatus(x.message); }
+const pick = a => a[Math.floor(Math.random() * a.length)];
+$("#reset").addEventListener("click", () => { $("#set").classList.remove("on"); stopSpeak(); command("new"); });
+// conversas salvas (Ajustes)
+$("#savedBox").addEventListener("toggle", async e => {
+  if (!e.target.open) return; const ul = $("#savedList"); ul.innerHTML = "<li>Carregando…</li>";
+  try {
+    const { chats } = await api("chats");
+    ul.innerHTML = chats.length ? chats.map(c => `<li><button type="button" data-open="${esc(c.id)}">${esc(c.title)}${c.id === S.chatId ? " (aberta)" : ""}</button></li>`).join("") : "<li>Nenhuma conversa salva. Use /save no chat.</li>";
+  } catch (x) { ul.innerHTML = `<li>${esc(x.message)}</li>`; }
 });
+$("#savedList").addEventListener("click", e => { const b = e.target.closest("button[data-open]"); if (b) openChat(b.dataset.open); });
 $("#fPw").addEventListener("submit", async e => {
   e.preventDefault(); const msg = $("#pwMsg");
   if ($("#pwNew").value !== $("#pwNew2").value) { msg.textContent = "As duas senhas novas não são iguais."; return; }

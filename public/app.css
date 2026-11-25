@@ -109,3 +109,16 @@ button:disabled{opacity:.45;cursor:default}
 #status{max-width:720px;margin:0 auto 6px;font-size:13px;color:var(--mute);min-height:18px}
 @media(prefers-reduced-motion:reduce){.typing i{animation:none}main{scroll-behavior:auto}#mic{transition:none}}
 .note.tip .more{color:light-dark(var(--blue),#8fb0ff)}
+
+.hint{font-size:14px;color:var(--mute)}
+.sys{align-self:center;max-width:520px;width:100%;background:var(--note);border-radius:14px;padding:10px 14px;font-size:15px;display:flex;flex-direction:column;gap:4px}
+.sys code,.cmdmenu code{font-weight:800;color:var(--red);margin-right:6px}
+.themes{display:flex;flex-wrap:wrap;gap:8px;max-width:520px}
+.theme{font-size:15px;font-weight:600;min-height:42px;padding:0 14px;border-radius:99px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
+.theme:hover{border-color:var(--red)}
+.bub small{opacity:.7;font-size:13px}
+.cmdmenu{max-width:720px;margin:0 auto 8px;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--bg)}
+.cmdmenu button{text-align:start;min-height:44px;padding:0 14px;border:0;border-bottom:1px solid var(--line);background:none;color:var(--ink);font-size:15px;cursor:pointer}
+.cmdmenu button:last-child{border-bottom:0}
+.saved{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;max-width:420px}
+.saved button{width:100%;text-align:start;min-height:42px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:none;color:var(--ink);cursor:pointer;font-size:15px}
