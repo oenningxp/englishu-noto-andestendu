@@ -24,6 +24,16 @@ export default {
 };
 const sameOrigin = (req, url) => { const o = req.headers.get("Origin"); return !o || o === url.origin; };
 
+// contas só do Englishu (sem Gothic e sem 2FA): criadas uma vez; trocar a senha não é desfeito
+const LOCAL_SEED = [
+  ["amanda", "Amanda", "IVtA-yVTw6GDiqV5ntMtqg", "Xz49UbEDmMj2O1SCvdaKYigKNR4C__Pe1nAxeF3q7WU"],
+  ["leticia", "Letícia", "U_pce0s5mmcfC5-6-23DVw", "313RERWVfy-aai1Tmhjrpm98N-svj8oKjjGvt_tJXSU"],
+  ["isabella", "Isabella", "UbVGzzpJnILi0ORYdE6V6Q", "uDaGIZdCNY6Oq2wbS9JepDvGSOkf3AQQDBCOeLo4cBs"],
+  ["liane", "Liane", "FKc_Po98-5bXdLDs-T8Liw", "Vm2NvHzDnJucmkp0_ivY1nATASwy0QK9ggqnp2dkcHg"],
+  ["manoel", "Manoel", "z2kK5JIM__qcpEhJiHd0RA", "MhLM84SWtlxXd2r32t9xtknCbQwzgMcBA2FrucacWbU"],
+  ["vitoria", "Vitória", "ffh1RfARQQxEo7J1dNOnig", "1svgiDcsbht7nzTtRG7Heuwjd7XOIj6X7zn98MQ2GUw"]
+]; // [usuário, nome, sal, hash] — senha inicial 123456
+
 // ---------- tabelas do Papo (as contas são as do Gothic, tabela users, só leitura)
 let ready = false;
 async function ensureTables(env) {
@@ -32,8 +42,10 @@ async function ensureTables(env) {
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, stage TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_state (user_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_usage (user_id TEXT NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (user_id, day))"),
-    env.DB.prepare("CREATE TABLE IF NOT EXISTS login_fails (k TEXT PRIMARY KEY, n INTEGER NOT NULL, since INTEGER NOT NULL)")
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS login_fails (k TEXT PRIMARY KEY, n INTEGER NOT NULL, since INTEGER NOT NULL)"),
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, nick TEXT NOT NULL, pass_hash TEXT NOT NULL, pass_salt TEXT NOT NULL, fail_count INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)")
   ]);
+  await env.DB.batch(LOCAL_SEED.map(([u, n, salt, hash]) => env.DB.prepare("INSERT OR IGNORE INTO papo_users (id,username,nick,pass_hash,pass_salt,created_at) VALUES (?,?,?,?,?,?)").bind("p_" + u, u, n, hash, salt, Date.now())));
   ready = true;
 }
 
@@ -48,11 +60,14 @@ async function newSession(env, userId, stage) {
 }
 async function session(req, env) {
   const t = cookieOf(req); if (!t) return null;
-  const row = await env.DB.prepare("SELECT s.token_hash,s.stage,s.expires_at,u.* FROM papo_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?").bind(await sha256(t)).first();
-  return row && row.expires_at > Date.now() ? row : null;
+  const ses = await env.DB.prepare("SELECT token_hash,user_id,stage,expires_at FROM papo_sessions WHERE token_hash=?").bind(await sha256(t)).first();
+  if (!ses || ses.expires_at <= Date.now()) return null;
+  const local = ses.user_id.startsWith("p_");
+  const u = await env.DB.prepare(`SELECT * FROM ${local ? "papo_users" : "users"} WHERE id=?`).bind(ses.user_id).first();
+  return u ? { ...u, token_hash: ses.token_hash, stage: ses.stage, expires_at: ses.expires_at, local } : null;
 }
 const isOwner = (env, u) => !!u && u.username === String(env.ADMIN_USERNAME || "").toLowerCase();
-const meOut = (env, u) => ({ username: u.username, nick: u.nick, avatar: u.avatar || null, color: u.nick_color || null, owner: isOwner(env, u) });
+const meOut = (env, u) => ({ username: u.username, nick: u.nick, avatar: u.avatar || null, color: u.nick_color || null, owner: !u.local && isOwner(env, u), local: !!u.local });
 
 // mesmas regras de tentativas do Gothic (as chaves são as mesmas: errar aqui ou lá conta junto)
 const LF_WIN = 15 * 60000, LF_USER = 5, LF_NET = 20;
@@ -66,9 +81,9 @@ async function countAttempt(env, k, now) {
   const r = await env.DB.prepare("INSERT INTO login_fails (k, n, since) VALUES (?, 1, ?) ON CONFLICT(k) DO UPDATE SET n = CASE WHEN since < ? THEN 1 ELSE n + 1 END, since = CASE WHEN since < ? THEN excluded.since ELSE since END RETURNING n").bind(k, now, now - LF_WIN, now - LF_WIN).first();
   return r ? r.n : 1;
 }
-async function registerFail(env, id) {
-  const r = await env.DB.prepare("UPDATE users SET fail_count=fail_count+1 WHERE id=? RETURNING fail_count").bind(id).first();
-  if (r && r.fail_count >= 5) await env.DB.prepare("UPDATE users SET fail_count=0, locked_until=? WHERE id=?").bind(Date.now() + 15 * 60000, id).run();
+async function registerFail(env, id, table = "users") {
+  const r = await env.DB.prepare(`UPDATE ${table} SET fail_count=fail_count+1 WHERE id=? RETURNING fail_count`).bind(id).first();
+  if (r && r.fail_count >= 5) await env.DB.prepare(`UPDATE ${table} SET fail_count=0, locked_until=? WHERE id=?`).bind(Date.now() + 15 * 60000, id).run();
 }
 
 // ---------- estado da conversa (fica no servidor: celular e computador veem a mesma)
@@ -121,9 +136,18 @@ async function api(req, env, path) {
     const kUser = "u|" + net + "|" + username, kNet = "n|" + net;
     const cUser = await countAttempt(env, kUser, now), cNet = await countAttempt(env, kNet, now);
     if (cUser > LF_USER || cNet > LF_NET) return err("Muitas tentativas. Tente de novo em alguns minutos.", 429);
+    const pw = String(body.password || "");
+    // conta só do Englishu: usuário e senha, sem 2FA
+    const lu = await env.DB.prepare("SELECT * FROM papo_users WHERE username=?").bind(username).first();
+    if (lu) {
+      if (lu.locked_until > now) return err("Muitas tentativas. Tente de novo em alguns minutos.", 429);
+      if (!(await checkPassword(pw, lu.pass_salt, lu.pass_hash))) { await registerFail(env, lu.id, "papo_users"); return err("Usuário ou senha incorretos.", 401); }
+      await env.DB.prepare("UPDATE papo_users SET fail_count=0 WHERE id=?").bind(lu.id).run();
+      await env.DB.prepare("DELETE FROM login_fails WHERE k=? OR since<?").bind(kUser, now - LF_WIN).run();
+      return json({ user: meOut(env, { ...lu, local: true }), state: await loadState(env, lu.id) }, 200, await newSession(env, lu.id, "full"));
+    }
     const u = await env.DB.prepare("SELECT * FROM users WHERE username=?").bind(username).first();
     if (u && u.locked_until > now) return err("Muitas tentativas. Tente de novo em alguns minutos.", 429);
-    const pw = String(body.password || "");
     if (!u) { await hashPassword(pw, "gothic-sem-conta-000000"); return err("Usuário ou senha incorretos.", 401); }
     if (!(await checkPassword(pw, u.pass_salt, u.pass_hash))) return err("Usuário ou senha incorretos.", 401);
     await env.DB.prepare("DELETE FROM login_fails WHERE k=? OR since<?").bind(kUser, now - LF_WIN).run();
@@ -144,6 +168,16 @@ async function api(req, env, path) {
     return json({ ok: true }, 200, { "Set-Cookie": setCookie("", 0) });
   }
   if (!s || s.stage !== "full") return path === "me" ? json({ user: null }) : err("Entre na sua conta.", 401);
+  if (path === "password" && method === "POST") {
+    if (!s.local) return err("A senha da conta Gothic se troca no Gothic.");
+    const nw = String(body.new || "");
+    if (nw.length < 6 || nw.length > 128) return err("A senha nova precisa ter pelo menos 6 caracteres.");
+    if (!(await checkPassword(String(body.old || ""), s.pass_salt, s.pass_hash))) return err("Senha atual incorreta.", 401);
+    const { hash, salt } = await hashPassword(nw);
+    await env.DB.prepare("UPDATE papo_users SET pass_hash=?, pass_salt=? WHERE id=?").bind(hash, salt, s.id).run();
+    await env.DB.prepare("DELETE FROM papo_sessions WHERE user_id=? AND token_hash<>?").bind(s.id, s.token_hash).run();
+    return json({ ok: true });
+  }
   if (path === "me") return json({ user: meOut(env, s), state: await loadState(env, s.id) });
 
   // --- conversa

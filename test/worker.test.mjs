@@ -70,4 +70,17 @@ assert.equal((await call("reset", {})).data.state.msgs.length, 0);
 await call("logout", {}); assert.equal((await call("me")).data.user, null);
 const evil = await worker.fetch(new Request("https://papo.test/api/reset", { method: "POST", headers: { Origin: "https://mal.test" } }), env);
 assert.equal(evil.status, 403);
+// contas só do Englishu (sem 2FA)
+cookie = "";
+assert.equal((await call("login", { username: "Amanda", password: "errada" })).status, 401);
+const la = await call("login", { username: "amanda", password: "123456" });
+assert.equal(la.status, 200); assert.equal(la.data.user.nick, "Amanda"); assert.equal(la.data.user.local, true); assert.equal(la.data.user.owner, false);
+assert.equal((await call("me")).data.user.username, "amanda");
+assert.equal((await call("chat", {})).status, 200, "conversa normal");
+assert.equal((await call("password", { old: "x", new: "nova1234" })).status, 401);
+assert.equal((await call("password", { old: "123456", new: "nova1234" })).status, 200);
+await call("logout", {});
+assert.equal((await call("login", { username: "amanda", password: "123456" })).status, 401, "senha antiga não vale mais");
+assert.equal((await call("login", { username: "amanda", password: "nova1234" })).status, 200);
+for (const u of ["leticia", "isabella", "liane", "manoel", "vitoria"]) { cookie = ""; assert.equal((await call("login", { username: u, password: "123456" })).status, 200, u); }
 console.log("worker ok");

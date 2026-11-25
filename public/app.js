@@ -23,12 +23,17 @@ function showApp(d) {
   me = d.user; S = d.state; $("#login").hidden = true; $("#app").hidden = false;
   $("#av").innerHTML = me.avatar ? `<img alt="" src="/img/${encodeURIComponent(me.avatar)}">` : esc((me.nick || "?").slice(0, 1).toUpperCase());
   $("#who").textContent = `Conectado como ${me.nick} (${me.username})`;
+  $("#pwBox").hidden = !me.local;
   $("#voice").value = S.settings.voice; $("#rate").value = S.settings.rate; $("#rateV").textContent = S.settings.rate + "x"; $("#auto").checked = S.settings.auto;
   render();
 }
 $("#fLogin").addEventListener("submit", async e => {
   e.preventDefault(); $("#lErr").textContent = "";
-  try { await api("login", { username: $("#lUser").value, password: $("#lPass").value }); $("#fLogin").hidden = true; $("#fTotp").hidden = false; $("#lCode").focus(); }
+  try {
+    const d = await api("login", { username: $("#lUser").value, password: $("#lPass").value });
+    if (d.user) { $("#lPass").value = ""; showApp(d); return; } // conta do Englishu: entra direto
+    $("#fLogin").hidden = true; $("#fTotp").hidden = false; $("#lCode").focus();
+  }
   catch (x) { $("#lErr").textContent = x.message; }
 });
 $("#fTotp").addEventListener("submit", async e => {
@@ -189,6 +194,12 @@ $("#reset").addEventListener("click", async e => {
   if (Date.now() - armed > 3000) { armed = Date.now(); e.target.textContent = "Toque de novo para apagar"; setTimeout(() => e.target.textContent = "Nova conversa", 3000); return; }
   armed = 0; e.target.textContent = "Nova conversa"; stopSpeak(); practice = {};
   try { S = (await api("reset", {})).state; render(); } catch (x) { setStatus(x.message); }
+});
+$("#fPw").addEventListener("submit", async e => {
+  e.preventDefault(); const msg = $("#pwMsg");
+  if ($("#pwNew").value !== $("#pwNew2").value) { msg.textContent = "As duas senhas novas não são iguais."; return; }
+  try { await api("password", { old: $("#pwOld").value, new: $("#pwNew").value }); msg.textContent = "Senha trocada!"; e.target.reset(); }
+  catch (x) { msg.textContent = x.message; }
 });
 $("#logout").addEventListener("click", async () => { stopSpeak(); await api("logout", {}).catch(() => {}); showLogin(); });
 

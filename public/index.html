@@ -18,9 +18,9 @@
   <div class="lcard">
     <svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><path d="M8 14a8 8 0 0 1 8-8h22a8 8 0 0 1 8 8v14a8 8 0 0 1-8 8H24l-10 8v-8h2a8 8 0 0 1-8-8z" fill="#d7263d"/><path d="M26 30a8 8 0 0 1 8-8h14a8 8 0 0 1 8 8v12a8 8 0 0 1-8 8h-2v8l-10-8h-2a8 8 0 0 1-8-8z" fill="#2154d6"/></svg>
     <h1>Englishu <svg class="no" viewBox="0 0 24 24" role="img" aria-label="noto"><defs><clipPath id="NOA"><path d="M-4-4H28V-2.9L-4 28.07Z"/></clipPath><clipPath id="NOB"><path d="M28-2.9-4 28.07V32H28Z"/></clipPath><g id="NOH" transform="rotate(180 12 12)"><rect x="2" y="10" width="4" height="11" rx="1.2"/><path d="M8 10 12 3C12.8 1.6 15 2.2 15 4L14.4 9H20C21.2 9 22.1 10.1 21.9 11.3L20.6 19.3C20.4 20.3 19.6 21 18.6 21H8Z"/></g></defs><use href="#NOH" clip-path="url(#NOA)" fill="var(--ink)"/><use href="#NOH" clip-path="url(#NOB)" fill="var(--red)"/></svg> <b>Andestêndu</b></h1>
-    <p class="sub">Converse com o Sam em inglês americano e seja corrigido no caminho. Entre com a sua conta do Gothic.</p>
+    <p class="sub">Converse com o Sam em inglês americano e seja corrigido no caminho. Entre com a sua conta.</p>
     <form id="fLogin">
-      <label>Usuário do Gothic (o de login)<input id="lUser" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+      <label>Usuário<input id="lUser" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
       <label>Senha<input id="lPass" type="password" autocomplete="current-password" required></label>
       <button class="big" type="submit">Entrar</button>
     </form>
@@ -44,6 +44,9 @@
       <label>Voz do Sam <select id="voice"><option value="server">Voz do servidor</option><option value="phone">Voz do aparelho</option></select></label>
       <label>Velocidade <input type="range" id="rate" min="0.7" max="1.3" step="0.05"> <span id="rateV"></span></label>
       <label class="ck"><input type="checkbox" id="auto"> Enviar sozinho ao parar de falar</label>
+      <details id="pwBox" class="pw" hidden><summary>Trocar senha</summary>
+        <form id="fPw"><input id="pwOld" type="password" autocomplete="current-password" placeholder="Senha atual" required><input id="pwNew" type="password" autocomplete="new-password" placeholder="Senha nova (mín. 6)" minlength="6" required><input id="pwNew2" type="password" autocomplete="new-password" placeholder="Repita a senha nova" minlength="6" required><button class="ib" type="submit">Salvar senha</button><span id="pwMsg" aria-live="polite"></span></form>
+      </details>
       <div class="btns"><button class="ib" id="skip">Trocar de assunto</button><button class="ib" id="reset">Nova conversa</button><button class="ib" id="logout">Sair</button></div>
     </div>
   </header>

@@ -48,6 +48,10 @@ header{padding:10px max(4vw,14px);border-bottom:1px solid var(--line);display:fl
 .set label{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .who{margin:0;color:var(--mute);font-size:14px}
 .btns{display:flex;gap:8px;flex-wrap:wrap}
+.pw summary{cursor:pointer;font-weight:600;min-height:32px}
+.pw form{display:flex;flex-direction:column;gap:8px;max-width:320px;margin-top:6px}
+.pw input{min-height:44px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:16px}
+#pwMsg{font-size:14px;color:var(--mute)}
 .ib{font-weight:600;font-size:14px;min-height:42px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
 select,input[type=range],input[type=checkbox]{accent-color:var(--red)}
 select{padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:16px}
