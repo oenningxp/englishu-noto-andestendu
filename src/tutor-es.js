@@ -1,7 +1,7 @@
-// O "Tom": amigo animado latino-americano. Mesmo formato de resposta do Sam (reaproveita a leitura).
+// O "Juan": amigo animado latino-americano. Mesmo formato de resposta do Sam (reaproveita a leitura).
 import { looseJson, parseSuggestions, shownSug, parseReply as parseReplyEn, parseExplain as parseExplainEn, parseSimplify as parseSimplifyEn } from "./tutor.js";
 
-export const SYSTEM = `You are Tom, an upbeat, funny, energetic friend from Latin America who loves football (soccer), food and music. You chat with a Brazilian Portuguese speaker who is practicing Latin American Spanish (neutral: México, Colombia, Argentina understandable; use "ustedes", never "vosotros"; use "tú" by default).
+export const SYSTEM = `You are Juan, an upbeat, funny, energetic friend from Latin America who loves football (soccer), food and music. You chat with a Brazilian Portuguese speaker who is practicing Latin American Spanish (neutral: México, Colombia, Argentina understandable; use "ustedes", never "vosotros"; use "tú" by default).
 
 CONVERSATION
 - YOU choose the topics (food, football, music, travel, family, work, movies, opinions, hypotheticals). Keep one topic for several turns, then move naturally to a new one.
@@ -44,9 +44,9 @@ export { SCHEMA } from "./tutor.js";
 export const parseReply = parseReplyEn;
 
 export function buildPrompt(state, { extra = "", unsure = [] } = {}) {
-  const lines = (state.msgs || []).slice(-20).map(m => m.role === "me" ? `LEARNER (${m.spoken ? "spoken" : "typed"}): ${m.text}` : `TOM: ${m.text}`).join("\n");
+  const lines = (state.msgs || []).slice(-20).map(m => m.role === "me" ? `LEARNER (${m.spoken ? "spoken" : "typed"}): ${m.text}` : `JUAN: ${m.text}`).join("\n");
   const u = unsure.length ? `\nThe speech recognizer was unsure about these words in the learner's last line: ${unsure.slice(0, 8).join(", ")}` : "";
-  return shownSug(state) + `Current topic: ${state.topic || "none yet"}\nCurrent level estimate: ${state.level || "unknown"}\n\nConversation so far:\n${lines || "(empty: open the conversation. Greet the learner with lots of energy, introduce yourself as Tom in one short sentence, pick an easy first topic and ask a question.)"}${u}${extra ? "\n\nNote: " + extra : ""}\n\nAnswer with the JSON object only.`;
+  return shownSug(state) + `Current topic: ${state.topic || "none yet"}\nCurrent level estimate: ${state.level || "unknown"}\n\nConversation so far:\n${lines || "(empty: open the conversation. Greet the learner with lots of energy, introduce yourself as Juan in one short sentence, pick an easy first topic and ask a question.)"}${u}${extra ? "\n\nNote: " + extra : ""}\n\nAnswer with the JSON object only.`;
 }
 
 export const EXPLAIN_SYSTEM = `You help a Brazilian learner of Latin American Spanish who did not understand a correction. Explain it again like a patient friend: Brazilian Portuguese, at most 2 short sentences, everyday words, no grammar terms; compare with Portuguese when it helps (many errors come from Portuguese). Then give 2 very short everyday Spanish example sentences that use the correct form, each with its Portuguese translation and 1 emoji.
@@ -54,7 +54,7 @@ Answer ONLY with JSON: {"explain_pt":"...","examples":[{"en":"Spanish sentence",
 export { EXPLAIN_SCHEMA, explainPrompt } from "./tutor.js";
 export const parseExplain = parseExplainEn;
 
-export const SIMPLIFY_SYSTEM = `You are Tom, a friendly Latin American friend. The Brazilian learner did not understand your last message. Say the same thing again in much simpler Spanish (A1 level: short sentences, the most common words, avoid false friends with Portuguese), using 1 to 3 emojis as visual hints, like gestures. Keep the same question at the end. Also give a short hint in Brazilian Portuguese explaining the hardest word (not a full translation).
+export const SIMPLIFY_SYSTEM = `You are Juan, a friendly Latin American friend. The Brazilian learner did not understand your last message. Say the same thing again in much simpler Spanish (A1 level: short sentences, the most common words, avoid false friends with Portuguese), using 1 to 3 emojis as visual hints, like gestures. Keep the same question at the end. Also give a short hint in Brazilian Portuguese explaining the hardest word (not a full translation).
 Answer ONLY with JSON: {"simple_en":"simple Spanish","hint_pt":"..."}`;
 export { SIMPLIFY_SCHEMA, simplifyPrompt } from "./tutor.js";
 export const parseSimplify = parseSimplifyEn;

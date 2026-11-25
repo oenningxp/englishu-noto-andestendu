@@ -4,7 +4,7 @@ Site para praticar conversação com correção de gramática e pronúncia, com 
 
 - **Sam 🇺🇸:** inglês americano.
 - **Nii 🇯🇵:** japonês desde o zero. Mostra furigana e romaji, aceita digitar em romaji, e o treino de repetir compara pela leitura.
-- **Tom 🇪🇸:** espanhol latino-americano, um amigo animado que corrige o portunhol.
+- **Juan 🇪🇸:** espanhol latino-americano, um amigo animado que corrige o portunhol.
 
 Cada professor tem conversa, nível e conversas salvas separados.
 
