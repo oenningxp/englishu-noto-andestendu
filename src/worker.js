@@ -8,7 +8,7 @@ import { unsureWords, aiText } from "./tutor.js";
 // os dois professores: Sam (inglês americano) e Nii (japonês)
 const TUTORS = {
   en: { name: "Sam", system: () => EN.SYSTEM, SCHEMA: EN.SCHEMA, buildPrompt: EN.buildPrompt, parseReply: EN.parseReply, EXPLAIN_SYSTEM: EN.EXPLAIN_SYSTEM, EXPLAIN_SCHEMA: EN.EXPLAIN_SCHEMA, explainPrompt: EN.explainPrompt, parseExplain: EN.parseExplain, SIMPLIFY_SYSTEM: EN.SIMPLIFY_SYSTEM, SIMPLIFY_SCHEMA: EN.SIMPLIFY_SCHEMA, simplifyPrompt: EN.simplifyPrompt, parseSimplify: EN.parseSimplify, MORE_SUG_SYSTEM: EN.MORE_SUG_SYSTEM, MORE_SUG_SCHEMA: EN.MORE_SUG_SCHEMA, moreSugPrompt: EN.moreSugPrompt, parseMoreSug: EN.parseMoreSug, stt: "en", tts: "en", plain: t => t },
-  es: { name: "Paco", system: ES.system, SCHEMA: ES.SCHEMA, buildPrompt: ES.buildPrompt, parseReply: ES.parseReply, EXPLAIN_SYSTEM: ES.EXPLAIN_SYSTEM, EXPLAIN_SCHEMA: ES.EXPLAIN_SCHEMA, explainPrompt: ES.explainPrompt, parseExplain: ES.parseExplain, SIMPLIFY_SYSTEM: ES.SIMPLIFY_SYSTEM, SIMPLIFY_SCHEMA: ES.SIMPLIFY_SCHEMA, simplifyPrompt: ES.simplifyPrompt, parseSimplify: ES.parseSimplify, MORE_SUG_SYSTEM: ES.MORE_SUG_SYSTEM, MORE_SUG_SCHEMA: ES.MORE_SUG_SCHEMA, moreSugPrompt: ES.moreSugPrompt, parseMoreSug: ES.parseMoreSug, stt: "es", tts: "es", plain: t => t },
+  es: { name: "Tom", system: ES.system, SCHEMA: ES.SCHEMA, buildPrompt: ES.buildPrompt, parseReply: ES.parseReply, EXPLAIN_SYSTEM: ES.EXPLAIN_SYSTEM, EXPLAIN_SCHEMA: ES.EXPLAIN_SCHEMA, explainPrompt: ES.explainPrompt, parseExplain: ES.parseExplain, SIMPLIFY_SYSTEM: ES.SIMPLIFY_SYSTEM, SIMPLIFY_SCHEMA: ES.SIMPLIFY_SCHEMA, simplifyPrompt: ES.simplifyPrompt, parseSimplify: ES.parseSimplify, MORE_SUG_SYSTEM: ES.MORE_SUG_SYSTEM, MORE_SUG_SCHEMA: ES.MORE_SUG_SCHEMA, moreSugPrompt: ES.moreSugPrompt, parseMoreSug: ES.parseMoreSug, stt: "es", tts: "es", plain: t => t },
   ja: { name: "Nii", system: JA.system, SCHEMA: JA.SCHEMA, buildPrompt: JA.buildPrompt, parseReply: JA.parseReply, EXPLAIN_SYSTEM: JA.EXPLAIN_SYSTEM, EXPLAIN_SCHEMA: JA.EXPLAIN_SCHEMA, explainPrompt: JA.explainPrompt, parseExplain: JA.parseExplain, SIMPLIFY_SYSTEM: JA.SIMPLIFY_SYSTEM, SIMPLIFY_SCHEMA: JA.SIMPLIFY_SCHEMA, simplifyPrompt: JA.simplifyPrompt, parseSimplify: JA.parseSimplify, MORE_SUG_SYSTEM: JA.MORE_SUG_SYSTEM, MORE_SUG_SCHEMA: JA.MORE_SUG_SCHEMA, moreSugPrompt: JA.moreSugPrompt, parseMoreSug: JA.parseMoreSug, stt: "ja", tts: "jp", plain: JA.plain }
 };
 
@@ -371,7 +371,7 @@ async function api(req, env, path) {
   // diagnóstico da voz (só o dono): /api/tts-check?lang=ja mostra o que o servidor conseguiu gerar
   if (path === "tts-check" && method === "GET") {
     if (!isOwner(env, s)) return err("Só o dono.", 403);
-    try { const { bytes, tried } = await serverVoice(env, lang === "es" ? "¡Hola! Soy Paco." : "Hello! This is Sam.", lang); return json({ ok: !!bytes, tried }); }
+    try { const { bytes, tried } = await serverVoice(env, lang === "es" ? "¡Hola! Soy Tom." : "Hello! This is Sam.", lang); return json({ ok: !!bytes, tried }); }
     catch (e) { return json({ ok: false, error: String(e && e.message || e) }); }
   }
   return err("não encontrado", 404);

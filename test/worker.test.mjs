@@ -24,7 +24,7 @@ const AI = { run: async (model, input) => {
   if (model.includes("aura")) return new Response("fake-mp3").body;
   const sys = input.messages[0].content;
   if (sys.startsWith("You help a Brazilian beginner practice speaking Japanese")) return { response: { suggestions: [{ text: "アメリカが好{す}きです。", romaji: "Amerika ga suki desu.", pt: "Gosto da América." }] } };
-  if (sys.startsWith("You are Paco")) return { response: { reply: "¡Hola! Soy Paco. ¿Te gusta el fútbol?", reply_pt: "Oi! Sou o Paco. Você gosta de futebol?", topic_pt: "Futebol", level: "A2", corrections: [{ type: "grammar", said: "yo gusto de fútbol", better: "me gusta el fútbol", informal: "", why_pt: "x", example: "Me gusta." }], corrected: "Me gusta el fútbol.", suggestions: [{ text: "¡Sí, me encanta!", pt: "Sim, adoro!" }] } };
+  if (sys.startsWith("You are Tom")) return { response: { reply: "¡Hola! Soy Tom. ¿Te gusta el fútbol?", reply_pt: "Oi! Sou o Tom. Você gosta de futebol?", topic_pt: "Futebol", level: "A2", corrections: [{ type: "grammar", said: "yo gusto de fútbol", better: "me gusta el fútbol", informal: "", why_pt: "x", example: "Me gusta." }], corrected: "Me gusta el fútbol.", suggestions: [{ text: "¡Sí, me encanta!", pt: "Sim, adoro!" }] } };
   if (sys.startsWith("You are Nii")) return { response: { reply: "こんにちは！ブラジル人{じん}ですか？", romaji: "Konnichiwa! Burajirujin desu ka?", reply_pt: "Oi! Você é brasileiro?", topic_pt: "Apresentação", level: "Iniciante", corrections: [], corrected: "", corrected_romaji: "" } };
   if (sys.startsWith("You help a Brazilian")) return { output: [{ type: "message", content: [{ type: "output_text", text: '{"explain_pt":"Mais fácil.","examples":[{"en":"I live on a ship.","pt":"Moro num navio.","emoji":"🚢"}]}' }] }] };
   if (sys.includes("did not understand your last message")) return { choices: [{ message: { content: '{"simple_en":"What is your job? 💼","hint_pt":"job = trabalho"}' } }] };
@@ -110,7 +110,7 @@ assert.equal((await call("tts", { text: "私{わたし}です", lang: "ja" })).s
 const tts = await call("tts", { text: "Hello" }); assert.equal(new TextDecoder().decode(tts.data), "fake-mp3", "inglês: Aura");
 assert.equal((await call("tts-check")).status, 403, "diagnóstico só pro dono");
 
-// Paco (espanhol): terceira conversa separada (conta nova, com cota)
+// Tom (espanhol): terceira conversa separada (conta nova, com cota)
 cookie = ""; await call("login", { username: "liane", password: "123456" }); await call("chat", {});
 const es1 = await call("chat", { text: "yo gusto de fútbol", lang: "es" });
 assert.equal(es1.status, 200); assert.equal(es1.data.state.msgs[0].fix.items[0].better, "me gusta el fútbol"); assert.equal(es1.data.state.msgs[1].sug[0].text, "¡Sí, me encanta!");

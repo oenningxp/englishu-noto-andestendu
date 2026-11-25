@@ -11,7 +11,7 @@ const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ==
 const LANGS = ["en", "ja", "es"];
 let lang = LANGS.includes(store.get("lang", "en")) ? store.get("lang", "en") : "en";
 const P = Object.assign({ furi: true, romaji: true, ptAlways: true, kanaInput: true }, store.get("jaPrefs", {}));
-const NAME = () => ({ en: "Sam", ja: "Nii", es: "Paco" })[lang];
+const NAME = () => ({ en: "Sam", ja: "Nii", es: "Tom" })[lang];
 // japonês: 私{わたし} vira <ruby>私<rt>わたし</rt></ruby> (furigana); tudo escapado
 const KANJI_END = /[\u3400-\u9fff\uf900-\ufaff々〆ヵヶ]+$/;
 function ruby(text) {
@@ -101,7 +101,7 @@ function render() {
   l.hidden = !S.level; l.textContent = S.level ? "Nível " + S.level : "";
   if (!S.msgs.length) {
     const intro = lang === "es"
-      ? `<h2>¡Hola! Pronto pra conversar com o Paco?</h2><p>O Paco é um amigo latino-americano animado, que adora futebol, comida e música. Ele puxa papo em espanhol e corrige o portunhol no caminho. Responda falando ou digitando.</p>`
+      ? `<h2>¡Hola! Pronto pra conversar com o Tom?</h2><p>O Tom é um amigo latino-americano animado, que adora futebol, comida e música. Ele puxa papo em espanhol e corrige o portunhol no caminho. Responda falando ou digitando.</p>`
       : lang === "ja"
       ? `<h2>Pronto pra conversar com o Nii?</h2><p>O Nii é o seu irmão mais velho japonês e começa do zero com você. Tudo vem com furigana, romaji e tradução. Pode responder falando, em japonês ou digitando em romaji.</p>`
       : `<h2>Pronto pra conversar com o Sam?</h2><p>Ele escolhe o assunto e puxa papo em inglês americano. Responda falando ou digitando; os deslizes aparecem corrigidos logo abaixo da sua fala.</p>`;
