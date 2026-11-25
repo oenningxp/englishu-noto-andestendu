@@ -41,7 +41,7 @@ async function api(path, body, raw) {
 function showLogin() { me = null; $("#app").hidden = true; $("#login").hidden = false; $("#fLogin").hidden = false; $("#fTotp").hidden = true; }
 function showApp(d) {
   me = d.user; S = d.state; $("#login").hidden = true; $("#app").hidden = false;
-  if (lang === "ja" && d.lang !== "ja") { api("me").then(x => { if (x.user) { S = x.state; applyLang(); niiTip(); } }).catch(() => {}); }
+  if (lang === "ja" && d.lang !== "ja") { api("me").then(x => { if (x.user) { S = x.state; applyLang(); } }).catch(() => {}); }
   $("#av").innerHTML = me.avatar ? `<img alt="" src="/img/${encodeURIComponent(me.avatar)}">` : esc((me.nick || "?").slice(0, 1).toUpperCase());
   $("#who").textContent = `Conectado como ${me.nick} (${me.username})`;
   $("#pwBox").hidden = !me.local;
@@ -69,19 +69,11 @@ function applyLang() {
   $("#voice").value = S.settings.voice; $("#rate").value = S.settings.rate; $("#rateV").textContent = S.settings.rate + "x"; $("#auto").checked = S.settings.auto;
   render();
 }
-// aviso só no computador, na primeira vez que abrir o Nii
-const isDesktop = () => !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) && !(navigator.userAgentData && navigator.userAgentData.mobile);
-function niiTip() {
-  if (lang !== "ja" || !isDesktop() || store.get("niiTip", false)) return;
-  store.set("niiTip", true);
-  sys = { text: "Dica: no computador, o Nii funciona melhor no Google Chrome, por causa do suporte nativo do Google ao japonês (voz e reconhecimento)." };
-  render();
-}
 async function switchLang(l) {
   if (l === lang || busy) return;
   if (rec) await stopRec(); stopSpeak(); handsFree = false; sys = null; practice = {}; setStatus("");
   lang = l; store.set("lang", l); busy = true; applyLang();
-  try { const d = await api("me"); busy = false; if (d.user) { S = d.state; applyLang(); niiTip(); } }
+  try { const d = await api("me"); busy = false; if (d.user) { S = d.state; applyLang(); } }
   catch (x) { busy = false; render(); setStatus(x.message); }
 }
 $("#fLogin").addEventListener("submit", async e => {
@@ -109,7 +101,7 @@ function render() {
     const intro = lang === "ja"
       ? `<h2>Pronto pra conversar com o Nii?</h2><p>O Nii é o seu irmão mais velho japonês e começa do zero com você. Tudo vem com furigana, romaji e tradução. Pode responder falando, em japonês ou digitando em romaji.</p>`
       : `<h2>Pronto pra conversar com o Sam?</h2><p>Ele escolhe o assunto e puxa papo em inglês americano. Responda falando ou digitando; os deslizes aparecem corrigidos logo abaixo da sua fala.</p>`;
-    chat.innerHTML = `<div class="start">${intro}<button class="big" id="go" ${busy ? "disabled" : ""}>Começar conversa</button><p class="hint">Quer escolher o assunto? Digite <b>/theme</b>. Todos os comandos: <b>/help</b></p></div>${sysHtml()}`;
+    chat.innerHTML = `<div class="start">${intro}<button class="big" id="go" ${busy ? "disabled" : ""}>Começar conversa</button><p class="hint">Quer escolher o assunto? Digite <b>/theme</b>. Todos os comandos: <b>/help</b></p></div>${lang === "ja" && !sys ? `<div class="sys">Dica: o Nii funciona melhor no Google Chrome, por causa do suporte nativo do Google ao japonês (voz e reconhecimento).</div>` : ""}${sysHtml()}`;
     return;
   }
   chat.innerHTML = S.msgs.map(m => m.role === "ai"
