@@ -3,7 +3,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const TYPES = { grammar: "Gramática", pronunciation: "Pronúncia", vocab: "Vocabulário", register: "Formal × informal" };
 const chat = $("#chat"), main = $("#main"), inp = $("#inp"), mic = $("#mic"), statusEl = $("#status");
-let me = null, S = null, busy = false, waiting = "", sys = null, practice = {}, rec = null, target = "chat";
+let me = null, S = null, busy = false, waiting = "", sys = null, handsFree = false, practice = {}, rec = null, target = "chat";
 const setStatus = t => { statusEl.textContent = t || ""; };
 
 async function api(path, body, raw) {
@@ -121,7 +121,7 @@ function noteHtml(m) {
 }
 async function talk(path, body) {
   if (busy) return; busy = true; render(); setStatus("");
-  try { const d = await api(path, body); S = d.state; busy = false; render(); const last = S.msgs[S.msgs.length - 1]; if (last && last.role === "ai") speak(last.text); }
+  try { const d = await api(path, body); S = d.state; busy = false; render(); const last = S.msgs[S.msgs.length - 1]; if (last && last.role === "ai") samSays(last.text); }
   catch (x) { busy = false; render(); setStatus(x.message); }
 }
 async function extraAsk(path, body, key, after) {
@@ -132,8 +132,8 @@ async function extraAsk(path, body, key, after) {
 }
 function send(text, spoken, unsure) {
   text = String(text || "").trim(); if (!text || busy) return;
-  if (text.startsWith("/")) return runSlash(text);
-  sys = null;
+  if (text.startsWith("/")) { handsFree = false; return runSlash(text); }
+  sys = null; handsFree = !!spoken;
   S.msgs.push({ role: "me", id: "tmp", text, spoken }); inp.value = "";
   talk("chat", { text, spoken: !!spoken, unsure: unsure || [] }).then(() => { if (S.msgs.some(m => m.id === "tmp")) { S.msgs = S.msgs.filter(m => m.id !== "tmp"); inp.value = text; render(); } });
 }
@@ -141,24 +141,33 @@ function send(text, spoken, unsure) {
 // ---------- voz do Sam
 const audioCache = new Map(); let player = null;
 function stopSpeak() { try { player && player.pause(); } catch {} try { speechSynthesis.cancel(); } catch {} }
+// fala o texto; a promessa termina quando a fala acaba (ou é interrompida)
 async function speak(text) {
   if (!text) return; stopSpeak();
   if (S.settings.voice === "server") {
     try {
       let url = audioCache.get(text);
       if (!url) { url = URL.createObjectURL(await api("tts", { text })); audioCache.set(text, url); }
-      player = new Audio(url); player.playbackRate = S.settings.rate; await player.play(); return;
+      const a = player = new Audio(url); a.playbackRate = S.settings.rate;
+      const done = new Promise(res => { a.onended = res; a.onpause = res; a.onerror = res; });
+      await a.play(); await done; return;
     } catch { /* cai para a voz do aparelho */ }
   }
   try {
     const u = new SpeechSynthesisUtterance(text); u.lang = "en-US"; u.rate = S.settings.rate;
     const v = speechSynthesis.getVoices().find(v => v.lang === "en-US" || v.lang === "en_US"); if (v) u.voice = v;
-    speechSynthesis.speak(u);
+    const done = new Promise(res => { u.onend = res; u.onerror = res; setTimeout(res, 2000 + text.length * 120); });
+    speechSynthesis.speak(u); await done;
   } catch {}
+}
+// modo mãos livres: se a pessoa falou pelo microfone, ele abre sozinho depois que o Sam termina de falar
+async function samSays(text) {
+  await speak(text);
+  if (handsFree && !rec && !busy && !waiting && document.visibilityState === "visible" && !$("#app").hidden) startRec("chat", true);
 }
 
 // ---------- microfone: grava, vira WAV 16 kHz e manda para o Whisper
-async function startRec(t) {
+async function startRec(t, auto = false) {
   if (rec) return stopRec();
   stopSpeak(); target = t;
   let stream;
@@ -166,25 +175,29 @@ async function startRec(t) {
   catch { setStatus("Microfone bloqueado. Libere o microfone para este site nas permissões do navegador."); return; }
   const ctx = new (window.AudioContext || window.webkitAudioContext)(); await ctx.resume();
   const src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(4096, 1, 1), chunks = [];
-  const r = { stream, ctx, src, node, chunks, rate: ctx.sampleRate, t0: Date.now(), heard: false, quietSince: 0 };
+  const r = { stream, ctx, src, node, chunks, rate: ctx.sampleRate, t0: Date.now(), heard: false, quietSince: 0, auto };
   node.onaudioprocess = e => {
     const d = e.inputBuffer.getChannelData(0); chunks.push(new Float32Array(d));
     let sum = 0; for (let i = 0; i < d.length; i += 4) sum += d[i] * d[i];
     const rms = Math.sqrt(sum / (d.length / 4)); mic.style.setProperty("--lvl", Math.min(1, rms * 8).toFixed(2));
     const now = Date.now();
     if (rms > 0.025) { r.heard = true; r.quietSince = 0; } else if (r.heard && !r.quietSince) r.quietSince = now;
-    if (now - r.t0 > 30000 || (S.settings.auto && r.heard && r.quietSince && now - r.quietSince > 1800)) stopRec();
+    if (now - r.t0 > 30000 || (S.settings.auto && r.heard && r.quietSince && now - r.quietSince > 1800) || (r.auto && !r.heard && now - r.t0 > 10000)) stopRec();
   };
   src.connect(node); node.connect(ctx.destination);
   rec = r; mic.classList.add("on");
-  setStatus(t === "chat" ? "Ouvindo… toque no microfone para parar." : "Repita a frase… toque em Parar ao terminar.");
+  setStatus(t !== "chat" ? "Repita a frase… toque em Parar ao terminar." : auto ? "Sua vez! Ouvindo… (toque no microfone para parar o modo voz)" : "Ouvindo… toque no microfone para parar.");
   render();
 }
 async function stopRec() {
   const r = rec; if (!r) return; rec = null; mic.classList.remove("on"); mic.style.removeProperty("--lvl");
   try { r.node.disconnect(); r.src.disconnect(); r.stream.getTracks().forEach(x => x.stop()); await r.ctx.close(); } catch {}
   render();
-  if (!r.heard) { setStatus("Não ouvi nada. Tente de novo, mais perto do microfone."); return; }
+  if (!r.heard) {
+    if (r.auto) { handsFree = false; setStatus("Fechei o microfone porque ninguém falou. Toque nele para continuar."); }
+    else setStatus("Não ouvi nada. Tente de novo, mais perto do microfone.");
+    return;
+  }
   setStatus("Entendendo o que você disse…");
   try {
     const d = await api("stt", toWav(r.chunks, r.rate), true); setStatus("");
