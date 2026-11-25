@@ -137,3 +137,14 @@ body.nofuri rt{display:none}
 body.noromaji .romaji{display:none}
 .ja .bub{font-family:Figtree,"Noto Sans JP","Hiragino Sans","Yu Gothic",system-ui,sans-serif}
 .ja .ex{font-style:normal}
+
+/* sugestões de resposta */
+.sugs{display:flex;flex-direction:column;gap:8px;max-width:560px;width:100%;align-self:flex-start}
+.sugs .lbl{font-size:13px;color:var(--mute);font-weight:600}
+.sug{border:1px dashed var(--line);border-radius:14px;padding:8px 12px}
+.sug .st{font-size:16px;font-weight:600}
+.sug .st .why{font-weight:400}
+.sug .row{margin-top:6px}
+.sug .row button{min-height:38px;font-size:13px;padding:0 14px}
+.ja .sug .st{line-height:2.1}
+.note.score{max-width:520px}

@@ -31,13 +31,15 @@ LEARNER: "I don't know what brings means." -> corrections: [], corrected: "" (an
 LEARNER: "I'm doing ok. How about u?" -> corrections: [{"type":"register","said":"u","better":"you","informal":"u","why_pt":"'u' é normal em chat com amigos; em texto formal ou falando, use 'you'.","example":"How about you?"}], corrected: "" (no real errors)
 LEARNER: "I am agree with you." -> corrections: [{"type":"grammar","said":"I am agree","better":"I agree","why_pt":"'Agree' já é o verbo, não usa 'am'.","example":"I agree with you."}]
 
+SUGGESTIONS: give 3 short, different answers the learner could say back to YOUR reply, at their level (natural spoken American English, max 12 words each), each with a Portuguese translation. They are for practice, so make them easy to say.
+
 Answer ONLY with a JSON object, no other text:
-{"reply":"your English reply","reply_pt":"Portuguese translation of the reply","topic_pt":"current topic, 1-3 words in Portuguese","level":"A1|A2|B1|B2|C1|C2","corrections":[{"type":"grammar|pronunciation|vocab|register","said":"fragment as the learner said it","better":"corrected or formal fragment","informal":"casual version, or empty string","why_pt":"very simple explanation","example":"short English example"}],"corrected":"the learner's full last line with ONLY the real errors fixed, or empty string if there are no real errors"}`;
+{"reply":"your English reply","reply_pt":"Portuguese translation of the reply","suggestions":[{"text":"possible answer","pt":"translation"}],"topic_pt":"current topic, 1-3 words in Portuguese","level":"A1|A2|B1|B2|C1|C2","corrections":[{"type":"grammar|pronunciation|vocab|register","said":"fragment as the learner said it","better":"corrected or formal fragment","informal":"casual version, or empty string","why_pt":"very simple explanation","example":"short English example"}],"corrected":"the learner's full last line with ONLY the real errors fixed, or empty string if there are no real errors"}`;
 
 const corrItem = { type: "object", properties: { type: { type: "string" }, said: { type: "string" }, better: { type: "string" }, informal: { type: "string" }, why_pt: { type: "string" }, example: { type: "string" } }, required: ["type", "said", "better", "informal", "why_pt", "example"] };
 export const SCHEMA = {
   type: "object",
-  properties: { reply: { type: "string" }, reply_pt: { type: "string" }, topic_pt: { type: "string" }, level: { type: "string" }, corrections: { type: "array", items: corrItem }, corrected: { type: "string" } },
+  properties: { reply: { type: "string" }, reply_pt: { type: "string" }, suggestions: { type: "array", items: { type: "object", properties: { text: { type: "string" }, pt: { type: "string" } }, required: ["text", "pt"] } }, topic_pt: { type: "string" }, level: { type: "string" }, corrections: { type: "array", items: corrItem }, corrected: { type: "string" } },
   required: ["reply", "reply_pt", "topic_pt", "level", "corrections", "corrected"]
 };
 
@@ -79,7 +81,12 @@ export function parseReply(raw) {
   })).map(c => (norm(c.informal) === norm(c.better) || (c.type !== "register" && norm(c.informal) === norm(c.said)) ? { ...c, informal: "" } : c))
     .filter(c => c.better && (c.type === "register" ? norm(c.better) !== norm(c.said) || c.informal : norm(c.better) !== norm(c.said)) && !(norm(c.said) === "ok" && norm(c.better) === "okay")).slice(0, 3);
   const realErr = corrections.some(c => c.type !== "register");
-  return { reply, reply_pt: str(r.reply_pt, 900), topic_pt: str(r.topic_pt, 40), level: LEVELS.includes(r.level) ? r.level : "", corrections, corrected: realErr ? str(r.corrected, 500) : "" };
+  return { reply, reply_pt: str(r.reply_pt, 900), suggestions: parseSuggestions(r.suggestions), topic_pt: str(r.topic_pt, 40), level: LEVELS.includes(r.level) ? r.level : "", corrections, corrected: realErr ? str(r.corrected, 500) : "" };
+}
+// respostas sugeridas para treinar a fala (até 3)
+export function parseSuggestions(list) {
+  return (Array.isArray(list) ? list : []).map(x => ({ text: str(x && x.text, 200), romaji: str(x && x.romaji, 250), pt: str(x && x.pt, 200) }))
+    .filter(x => x.text).slice(0, 3).map(x => x.romaji ? x : { text: x.text, pt: x.pt });
 }
 export function parseExplain(raw) {
   const r = looseJson(raw); if (!r) return null;

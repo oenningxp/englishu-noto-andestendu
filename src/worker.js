@@ -236,7 +236,7 @@ async function api(req, env, path) {
     if (last && last.role === "me" && !extra) last.fix = { items: r.corrections, corrected: r.corrected, ...(r.corrected_romaji ? { corrected_romaji: r.corrected_romaji } : {}) };
     if (r.topic_pt) st.topic = r.topic_pt;
     if (r.level) st.level = r.level;
-    st.msgs.push({ role: "ai", id: "m" + (++st.n), text: r.reply, pt: r.reply_pt, ...(r.romaji ? { romaji: r.romaji } : {}) });
+    st.msgs.push({ role: "ai", id: "m" + (++st.n), text: r.reply, pt: r.reply_pt, ...(r.romaji ? { romaji: r.romaji } : {}), ...(r.suggestions && r.suggestions.length ? { sug: r.suggestions } : {}) });
     st.dirty = true;
     await saveState(env, sk, st);
     return json({ state: st });

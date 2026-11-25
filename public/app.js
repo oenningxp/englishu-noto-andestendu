@@ -41,7 +41,7 @@ async function api(path, body, raw) {
 function showLogin() { me = null; $("#app").hidden = true; $("#login").hidden = false; $("#fLogin").hidden = false; $("#fTotp").hidden = true; }
 function showApp(d) {
   me = d.user; S = d.state; $("#login").hidden = true; $("#app").hidden = false;
-  if (lang === "ja" && d.lang !== "ja") { api("me").then(x => { if (x.user) { S = x.state; applyLang(); } }).catch(() => {}); }
+  if (lang === "ja" && d.lang !== "ja") { api("me").then(x => { if (x.user) { S = x.state; applyLang(); niiTip(); } }).catch(() => {}); }
   $("#av").innerHTML = me.avatar ? `<img alt="" src="/img/${encodeURIComponent(me.avatar)}">` : esc((me.nick || "?").slice(0, 1).toUpperCase());
   $("#who").textContent = `Conectado como ${me.nick} (${me.username})`;
   $("#pwBox").hidden = !me.local;
@@ -63,16 +63,25 @@ function applyLang() {
   document.querySelectorAll("[data-lang]").forEach(b => b.setAttribute("aria-pressed", b.dataset.lang === lang));
   inp.placeholder = lang === "ja" ? (P.kanaInput ? "Fale, ou digite em romaji…" : "Fale ou digite em japonês…") : "Fale ou digite em inglês…";
   $("#voiceLbl").textContent = "Voz do " + NAME();
+  $("#pSug").checked = sugOn();
   $("#jaPrefs").hidden = lang !== "ja";
   $("#pFuri").checked = P.furi; $("#pRomaji").checked = P.romaji; $("#pPt").checked = P.ptAlways; $("#pKana").checked = P.kanaInput;
   $("#voice").value = S.settings.voice; $("#rate").value = S.settings.rate; $("#rateV").textContent = S.settings.rate + "x"; $("#auto").checked = S.settings.auto;
+  render();
+}
+// aviso só no computador, na primeira vez que abrir o Nii
+const isDesktop = () => !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) && !(navigator.userAgentData && navigator.userAgentData.mobile);
+function niiTip() {
+  if (lang !== "ja" || !isDesktop() || store.get("niiTip", false)) return;
+  store.set("niiTip", true);
+  sys = { text: "Dica: no computador, o Nii funciona melhor no Google Chrome, por causa do suporte nativo do Google ao japonês (voz e reconhecimento)." };
   render();
 }
 async function switchLang(l) {
   if (l === lang || busy) return;
   if (rec) await stopRec(); stopSpeak(); handsFree = false; sys = null; practice = {}; setStatus("");
   lang = l; store.set("lang", l); busy = true; applyLang();
-  try { const d = await api("me"); busy = false; if (d.user) { S = d.state; applyLang(); } }
+  try { const d = await api("me"); busy = false; if (d.user) { S = d.state; applyLang(); niiTip(); } }
   catch (x) { busy = false; render(); setStatus(x.message); }
 }
 $("#fLogin").addEventListener("submit", async e => {
@@ -104,13 +113,24 @@ function render() {
     return;
   }
   chat.innerHTML = S.msgs.map(m => m.role === "ai"
-    ? aiHtml(m)
-    : `<div class="msg mine"><div class="bub">${esc(m.text)}</div>${noteHtml(m)}</div>`).join("")
+    ? aiHtml(m) + (m === S.msgs[S.msgs.length - 1] && !busy ? sugHtml(m) : "")
+    : `<div class="msg mine"><div class="bub">${esc(m.text)}</div>${practice[m.id + "#sug"] ? `<div class="note tip score">${practice[m.id + "#sug"]}</div>` : ""}${noteHtml(m)}</div>`).join("")
     + (busy ? `<div class="typing">${NAME()} está digitando <i></i><i></i><i></i></div>` : "") + sysHtml();
   main.scrollTop = main.scrollHeight;
 }
 
 const showPtOf = m => m.showPt ?? (lang === "ja" && P.ptAlways);
+// sugestões de resposta (só na última fala do professor)
+const sugOn = () => store.get("sug_" + lang, true);
+function sugHtml(m) {
+  if (!m.sug || !m.sug.length || !sugOn()) return "";
+  return `<div class="sugs"><span class="lbl">Você pode responder (toque em Falar e repita):</span>${m.sug.map((x, k) => {
+    const key = "sug:" + m.id + ":" + k, on = rec && target === key;
+    return `<div class="sug"><div class="st">${tx(x.text)}${rom(x.romaji)}${x.pt ? `<span class="why">${esc(x.pt)}</span>` : ""}</div><div class="row"><button class="alt" data-sughear="${key}">Ouvir</button><button class="${on ? "rec" : ""}" data-sugsay="${key}">${on ? "Parar" : "Falar"}</button><button class="alt" data-sugtype="${key}">Escrever</button></div></div>`;
+  }).join("")}</div>`;
+}
+const sugOf = key => { const [, id, k] = key.split(":"); const m = S.msgs.find(x => x.id === id); return m && m.sug && m.sug[+k]; };
+let pendingSug = null;
 function aiHtml(m) {
   const sp = showPtOf(m);
   return `<div class="msg ai"><div class="bub">${tx(m.text)}${rom(m.romaji)}</div><div class="tools"><button data-say="${m.id}">Ouvir de novo</button>${m.simple ? "" : `<button data-simple="${m.id}">${waiting === m.id ? "Simplificando…" : "Não entendi"}</button>`}${m.pt ? `<button data-pt="${m.id}">${sp ? "Esconder tradução" : "Tradução"}</button>` : ""}</div>${sp && m.pt ? `<div class="pt">${esc(m.pt)}</div>` : ""}${m.simple ? `<div class="simple"><span class="lbl">Mais simples</span><span class="en">${tx(m.simple.simple_en)}</span>${rom(m.simple.romaji)}${m.simple.hint_pt ? `<span class="why">${esc(m.simple.hint_pt)}</span>` : ""}<div class="tools"><button data-saysimple="${m.id}">Ouvir</button></div></div>` : ""}</div>`;
@@ -179,7 +199,11 @@ function noteHtml(m) {
 }
 async function talk(path, body) {
   if (busy) return; busy = true; render(); setStatus("");
-  try { const d = await api(path, body); S = d.state; busy = false; render(); const last = S.msgs[S.msgs.length - 1]; if (last && last.role === "ai") samSays(last.text); }
+  try {
+    const d = await api(path, body); S = d.state; busy = false;
+    if (pendingSug) { const mine = [...S.msgs].reverse().find(m => m.role === "me"); if (mine) practice[mine.id + "#sug"] = pendingSug; pendingSug = null; }
+    render(); const last = S.msgs[S.msgs.length - 1]; if (last && last.role === "ai") samSays(last.text);
+  }
   catch (x) { busy = false; render(); setStatus(x.message); }
 }
 async function extraAsk(path, body, key, after) {
@@ -251,7 +275,7 @@ async function startRec(t, auto = false) {
   };
   src.connect(node); node.connect(ctx.destination);
   rec = r; mic.classList.add("on");
-  setStatus(t !== "chat" ? "Repita a frase… toque em Parar ao terminar." : auto ? "Sua vez! Ouvindo… (toque no microfone para parar o modo voz)" : "Ouvindo… toque no microfone para parar.");
+  setStatus(t.startsWith("sug:") ? "Fale a resposta… toque em Parar ao terminar." : t !== "chat" ? "Repita a frase… toque em Parar ao terminar." : auto ? "Sua vez! Ouvindo… (toque no microfone para parar o modo voz)" : "Ouvindo… toque no microfone para parar.");
   render();
 }
 async function stopRec() {
@@ -267,6 +291,10 @@ async function stopRec() {
   try {
     const d = await api("stt", toWav(r.chunks, r.rate), true); setStatus("");
     if (target === "chat") { if (!d.text) return setStatus("Não entendi. Tente de novo."); if (S.settings.auto) send(d.text, true, d.unsure); else { inp.value = d.text; inp.dataset.spoken = "1"; inp.dataset.unsure = JSON.stringify(d.unsure || []); } }
+    else if (target.startsWith("sug:")) {
+      const x = sugOf(target); if (!d.text) return setStatus("Não entendi. Tente de novo.");
+      pendingSug = x ? gradeText(x.text, d.text) : null; send(d.text, true, d.unsure);
+    }
     else grade(target, d.text);
   } catch (x) { setStatus(x.message); }
 }
@@ -292,9 +320,10 @@ const sameSound = w => { const k = w.replace(/'/g, ""); return SOUND.get(k) || k
 const words = s => String(s).toLowerCase().replace(/[’‘]/g, "'").replace(/\b(wanna)\b/g, "want to").replace(/\b(gonna)\b/g, "going to").replace(/[^a-z0-9'\s-]/g, " ").split(/[\s-]+/).filter(Boolean).map(sameSound);
 // japonês: compara pela leitura; cada kanji vale se você disse o kanji ou a leitura dele
 const toHira = t => String(t).replace(/[\u30a1-\u30f6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
-const jnorm = t => toHira(t).replace(/[\s。、．，！？!?.,「」『』（）()・〜~…:：;；"'＂]/g, "");
-function gradeJa(m, said) {
-  const t = m.fix.corrected, segs = []; let last = 0; const re = /\{([^{}]*)\}/g; let x;
+// partículas は/へ/を soam "wa/e/o": o reconhecimento escreve わ/え/お, então os dois lados são comparados pelo som
+const jnorm = t => toHira(String(t).normalize("NFKC")).toLowerCase().replace(/[\s。、．，！？!?.,「」『』（）()・〜~…:：;；"'＂]/g, "").replace(/は/g, "わ").replace(/へ/g, "え").replace(/を/g, "お");
+function gradeJa(t, said) {
+  const segs = []; let last = 0; const re = /\{([^{}]*)\}/g; let x;
   const pushPlain = str => [...str].forEach(ch => segs.push({ show: esc(ch), base: jnorm(ch), read: jnorm(ch) }));
   while ((x = re.exec(t))) {
     const chunk = t.slice(last, x.index), k = chunk.match(KANJI_END);
@@ -316,14 +345,13 @@ function gradeJa(m, said) {
   while (i < n) { const mv = how[i][j]; if (!mv || mv[0] === "skip" || mv[0] === "free") i++; else if (mv[0] === "extra") j++; else { hit.add(i); j += mv[1]; i++; } }
   const counted = segs.map((s, k) => k).filter(k => segs[k].base);
   const pct = counted.length ? Math.round(counted.filter(k => hit.has(k)).length / counted.length * 100) : 0;
-  practice[m.id] = `<b>${pct}% entendido.</b> ${pct === 100 ? "すごい！ Mandou bem!" : "O que está sublinhado não saiu claro, tente de novo."}<br><span class="jline">${segs.map((s, k) => `<span class="${hit.has(k) || !s.base ? "ok" : "miss"}">${s.show}</span>`).join("")}</span><br><span class="why">Entendi: “${esc(said || "nada")}”</span>`;
-  render();
+  return `<b>${pct}% entendido.</b> ${pct === 100 ? "すごい！ Mandou bem!" : "O que está sublinhado não saiu claro, tente de novo."}<br><span class="jline">${segs.map((s, k) => `<span class="${hit.has(k) || !s.base ? "ok" : "miss"}">${s.show}</span>`).join("")}</span><br><span class="why">Entendi: “${esc(said || "nada")}”</span>`;
 }
-function grade(id, said) {
-  const m = S.msgs.find(x => x.id === id); if (!m || !m.fix) return;
-  if (lang === "ja") return gradeJa(m, said);
+// compara o que você falou com a frase esperada; devolve o resultado pronto para mostrar
+function gradeText(expected, said) {
+  if (lang === "ja") return gradeJa(expected, said);
   // cada palavra da frase vira 1 ou mais pedaços (ex.: "wanna" = want + to); a palavra conta se todos os pedaços foram ouvidos
-  const orig = m.fix.corrected.split(/\s+/).filter(Boolean), a = [], owner = [];
+  const orig = String(expected).split(/\s+/).filter(Boolean), a = [], owner = [];
   orig.forEach((w, k) => words(w).forEach(t => { a.push(t); owner.push(k); }));
   const b = words(said);
   const L = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
@@ -333,8 +361,11 @@ function grade(id, said) {
   const hit = new Set(orig.map((_, k) => k).filter(k => owner.some((o, t) => o === k) && owner.every((o, t) => o !== k || got.has(t))));
   const counted = orig.map((_, k) => k).filter(k => owner.includes(k));
   const pct = counted.length ? Math.round(counted.filter(k => hit.has(k)).length / counted.length * 100) : 0;
-  practice[id] = `<b>${pct}% das palavras entendidas.</b> ${pct === 100 ? "Mandou bem!" : "As sublinhadas não saíram claras, tente de novo."}<br>${orig.map((w, k) => `<span class="${hit.has(k) || !owner.includes(k) ? "ok" : "miss"}">${esc(w)}</span>`).join(" ")}<br><span class="why">Entendi: “${esc(said || "nada")}”</span>`;
-  render();
+  return `<b>${pct}% das palavras entendidas.</b> ${pct === 100 ? "Mandou bem!" : "As sublinhadas não saíram claras, tente de novo."}<br>${orig.map((w, k) => `<span class="${hit.has(k) || !owner.includes(k) ? "ok" : "miss"}">${esc(w)}</span>`).join(" ")}<br><span class="why">Entendi: “${esc(said || "nada")}”</span>`;
+}
+function grade(id, said) {
+  const m = S.msgs.find(x => x.id === id); if (!m || !m.fix) return;
+  practice[id] = gradeText(m.fix.corrected, said); render();
 }
 
 // ---------- eventos
@@ -348,6 +379,7 @@ inp.addEventListener("input", e => {
 });
 // trocar de professor e preferências do japonês
 document.querySelectorAll("[data-lang]").forEach(b => b.addEventListener("click", () => switchLang(b.dataset.lang)));
+$("#pSug").addEventListener("change", e => { store.set("sug_" + lang, e.target.checked); render(); });
 const prefs = [["#pFuri", "furi"], ["#pRomaji", "romaji"], ["#pPt", "ptAlways"], ["#pKana", "kanaInput"]];
 for (const [sel, key] of prefs) $(sel).addEventListener("change", e => { P[key] = e.target.checked; store.set("jaPrefs", P); applyLang(); });
 inp.addEventListener("blur", () => setTimeout(hideMenu, 200));
@@ -368,6 +400,9 @@ chat.addEventListener("click", e => {
     else if (a === "force-open") openChat(openId, true);
     else render();
   }
+  else if (b.dataset.sughear) speak(sugOf(b.dataset.sughear)?.text);
+  else if (b.dataset.sugsay) { if (rec && target === b.dataset.sugsay) stopRec(); else startRec(b.dataset.sugsay); }
+  else if (b.dataset.sugtype) { const x = sugOf(b.dataset.sugtype); if (x) { inp.value = lang === "ja" ? plainJ(x.text) : x.text; inp.focus(); } }
   else if (b.dataset.say) speak(find(b.dataset.say)?.text);
   else if (b.dataset.saysimple) speak(find(b.dataset.saysimple)?.simple?.simple_en);
   else if (b.dataset.simple) extraAsk("simplify", { id: b.dataset.simple }, b.dataset.simple, () => { const m = find(b.dataset.simple); if (m && m.simple) speak(m.simple.simple_en); });

@@ -1,5 +1,5 @@
 // O "Nii": irmão mais velho japonês. Mesmas funções do tutor do Sam, para japonês do zero.
-import { looseJson } from "./tutor.js";
+import { looseJson, parseSuggestions } from "./tutor.js";
 
 export const LEVELS = ["Iniciante", "N5", "N4", "N3", "N2", "N1"];
 const TYPES = ["grammar", "pronunciation", "vocab", "register"];
@@ -27,13 +27,15 @@ CORRECTIONS (only for the learner's LAST line, and only if it is from the LEARNE
 - example: one short Japanese example using the correct form (with readings in braces).
 - At most 3 items.
 
+SUGGESTIONS: give 3 short, different answers the learner could say back to YOUR reply, at their level (for Iniciante/N5: tiny polite sentences like はい、そうです。), each with readings in braces, romaji and Portuguese translation. They are for speaking practice, so keep them easy.
+
 Answer ONLY with JSON:
-{"reply":"your Japanese reply with readings in braces","romaji":"Hepburn romaji of the reply","reply_pt":"Portuguese translation","topic_pt":"topic in Portuguese, 1-3 words","level":"Iniciante|N5|N4|N3|N2|N1","corrections":[{"type":"grammar|pronunciation|vocab|register","said":"what the learner wrote","better":"correct/polite form, readings in braces","informal":"casual form or empty string","why_pt":"simple explanation","example":"Japanese example, readings in braces"}],"corrected":"the learner's whole last line with only the real errors fixed (readings in braces), or empty string","corrected_romaji":"romaji of corrected, or empty string"}`;
+{"reply":"your Japanese reply with readings in braces","romaji":"Hepburn romaji of the reply","reply_pt":"Portuguese translation","suggestions":[{"text":"answer with readings in braces","romaji":"...","pt":"..."}],"topic_pt":"topic in Portuguese, 1-3 words","level":"Iniciante|N5|N4|N3|N2|N1","corrections":[{"type":"grammar|pronunciation|vocab|register","said":"what the learner wrote","better":"correct/polite form, readings in braces","informal":"casual form or empty string","why_pt":"simple explanation","example":"Japanese example, readings in braces"}],"corrected":"the learner's whole last line with only the real errors fixed (readings in braces), or empty string","corrected_romaji":"romaji of corrected, or empty string"}`;
 
 const corrItem = { type: "object", properties: { type: { type: "string" }, said: { type: "string" }, better: { type: "string" }, informal: { type: "string" }, why_pt: { type: "string" }, example: { type: "string" } }, required: ["type", "said", "better", "informal", "why_pt", "example"] };
 export const SCHEMA = {
   type: "object",
-  properties: { reply: { type: "string" }, romaji: { type: "string" }, reply_pt: { type: "string" }, topic_pt: { type: "string" }, level: { type: "string" }, corrections: { type: "array", items: corrItem }, corrected: { type: "string" }, corrected_romaji: { type: "string" } },
+  properties: { reply: { type: "string" }, romaji: { type: "string" }, reply_pt: { type: "string" }, suggestions: { type: "array", items: { type: "object", properties: { text: { type: "string" }, romaji: { type: "string" }, pt: { type: "string" } }, required: ["text", "romaji", "pt"] } }, topic_pt: { type: "string" }, level: { type: "string" }, corrections: { type: "array", items: corrItem }, corrected: { type: "string" }, corrected_romaji: { type: "string" } },
   required: ["reply", "romaji", "reply_pt", "topic_pt", "level", "corrections", "corrected", "corrected_romaji"]
 };
 
@@ -56,7 +58,7 @@ export function parseReply(raw) {
     .filter(c => c.better && (c.type === "register" ? norm(c.better) !== norm(c.said) || c.informal : norm(c.better) !== norm(c.said))).slice(0, 3);
   const realErr = corrections.some(c => c.type !== "register");
   return {
-    reply, romaji: str(r.romaji, 900), reply_pt: str(r.reply_pt, 900), topic_pt: str(r.topic_pt, 40), level: LEVELS.includes(r.level) ? r.level : "",
+    reply, romaji: str(r.romaji, 900), reply_pt: str(r.reply_pt, 900), suggestions: parseSuggestions(r.suggestions), topic_pt: str(r.topic_pt, 40), level: LEVELS.includes(r.level) ? r.level : "",
     corrections, corrected: realErr ? str(r.corrected, 500) : "", corrected_romaji: realErr ? str(r.corrected_romaji, 600) : ""
   };
 }

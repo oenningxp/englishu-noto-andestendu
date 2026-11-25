@@ -12,3 +12,6 @@ assert.match(buildPrompt({ msgs: [] }), /knows NO Japanese/);
 assert.match(buildPrompt({ msgs: [{ role: "ai", text: "私{わたし}" }] }), /NII: 私$/m);
 assert.match(system("Everaldo"), /Everaldo/);
 console.log("nii ok");
+const js = parseReply({ reply: "はい", suggestions: [{ text: "ブラジル人{じん}です。", romaji: "Burajiru-jin desu.", pt: "Sou brasileiro." }] });
+assert.equal(js.suggestions[0].romaji, "Burajiru-jin desu.");
+console.log("sugestões nii ok");

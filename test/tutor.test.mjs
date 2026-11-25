@@ -48,3 +48,6 @@ assert.equal(reg.corrected, "", "só dica de formal/informal: sem frase para tre
 const both = parseReply({ reply: "Hi!", corrections: [{ type: "grammar", said: "I go travel", better: "I'm going to travel", informal: "I'm gonna travel", why_pt: "x" }], corrected: "I'm going to travel." });
 assert.equal(both.corrections[0].informal, "I'm gonna travel"); assert.equal(both.corrected, "I'm going to travel.");
 console.log("informal ok");
+const sg = parseReply({ reply: "Hi! Where are you from?", suggestions: [{ text: "I'm from Brazil.", pt: "Sou do Brasil." }, { text: "" }, { text: "Brazil!", pt: "Brasil!" }, { text: "a" }, { text: "b" }] });
+assert.equal(sg.suggestions.length, 3); assert.equal(sg.suggestions[0].pt, "Sou do Brasil."); assert.equal("romaji" in sg.suggestions[0], false);
+console.log("sugestões ok");
