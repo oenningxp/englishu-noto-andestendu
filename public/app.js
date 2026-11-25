@@ -8,9 +8,10 @@ let me = null, S = null, busy = false, waiting = "", sys = null, handsFree = fal
 const setStatus = t => { statusEl.textContent = t || ""; };
 // idioma: "en" = Sam (inglês americano), "ja" = Nii (japonês)
 const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
-let lang = store.get("lang", "en") === "ja" ? "ja" : "en";
+const LANGS = ["en", "ja", "es"];
+let lang = LANGS.includes(store.get("lang", "en")) ? store.get("lang", "en") : "en";
 const P = Object.assign({ furi: true, romaji: true, ptAlways: true, kanaInput: true }, store.get("jaPrefs", {}));
-const NAME = () => lang === "ja" ? "Nii" : "Sam";
+const NAME = () => ({ en: "Sam", ja: "Nii", es: "Paco" })[lang];
 // japonês: 私{わたし} vira <ruby>私<rt>わたし</rt></ruby> (furigana); tudo escapado
 const KANJI_END = /[\u3400-\u9fff\uf900-\ufaff々〆ヵヶ]+$/;
 function ruby(text) {
@@ -50,7 +51,7 @@ function showApp(d) {
 }
 // nome do site muda com o professor
 function applyTitle() {
-  const [a, b] = lang === "ja" ? ["Japanese", "Understand"] : ["Englishu", "Andestêndu"];
+  const [a, b] = ({ ja: ["Japanese", "Understand"], es: ["Español", "Entiendo"] })[lang] || ["Englishu", "Andestêndu"];
   document.querySelectorAll(".t1").forEach(e => e.textContent = a);
   document.querySelectorAll(".t2").forEach(e => e.textContent = b);
   document.title = `${a} 👎 ${b}`;
@@ -62,7 +63,7 @@ function applyLang() {
   document.body.classList.toggle("nofuri", lang === "ja" && !P.furi);
   document.body.classList.toggle("noromaji", lang === "ja" && !P.romaji);
   document.querySelectorAll("[data-lang]").forEach(b => b.setAttribute("aria-pressed", b.dataset.lang === lang));
-  inp.placeholder = lang === "ja" ? (P.kanaInput ? "Fale, ou digite em romaji…" : "Fale ou digite em japonês…") : "Fale ou digite em inglês…";
+  inp.placeholder = lang === "ja" ? (P.kanaInput ? "Fale, ou digite em romaji…" : "Fale ou digite em japonês…") : lang === "es" ? "Fale ou digite em espanhol…" : "Fale ou digite em inglês…";
   $("#voiceLbl").textContent = "Voz do " + NAME();
   $("#pSug").checked = sugOn();
   $("#jaPrefs").hidden = lang !== "ja";
@@ -99,7 +100,9 @@ function render() {
   t.hidden = !S.topic; t.textContent = S.topic ? "Assunto: " + S.topic : "";
   l.hidden = !S.level; l.textContent = S.level ? "Nível " + S.level : "";
   if (!S.msgs.length) {
-    const intro = lang === "ja"
+    const intro = lang === "es"
+      ? `<h2>¡Hola! Pronto pra conversar com o Paco?</h2><p>O Paco é um amigo latino-americano animado, que adora futebol, comida e música. Ele puxa papo em espanhol e corrige o portunhol no caminho. Responda falando ou digitando.</p>`
+      : lang === "ja"
       ? `<h2>Pronto pra conversar com o Nii?</h2><p>O Nii é o seu irmão mais velho japonês e começa do zero com você. Tudo vem com furigana, romaji e tradução. Pode responder falando, em japonês ou digitando em romaji.</p>`
       : `<h2>Pronto pra conversar com o Sam?</h2><p>Ele escolhe o assunto e puxa papo em inglês americano. Responda falando ou digitando; os deslizes aparecem corrigidos logo abaixo da sua fala.</p>`;
     chat.innerHTML = `<div class="start">${intro}<button class="big" id="go" ${busy ? "disabled" : ""}>Começar conversa</button><p class="hint">Quer escolher o assunto? Digite <b>/theme</b>. Todos os comandos: <b>/help</b></p></div>${lang === "ja" && !sys ? `<div class="sys">Dica: o Nii funciona melhor no Google Chrome, por causa do suporte nativo do Google ao japonês (voz e reconhecimento).</div>` : ""}${sysHtml()}`;
@@ -221,7 +224,7 @@ async function speak(text) {
   if (!text) return; stopSpeak();
   if (lang === "ja") text = plainJ(text);
   const key = lang + "|" + text;
-  if (S.settings.voice === "server" && lang === "en") {
+  if (S.settings.voice === "server" && (lang === "en" || lang === "es")) {
     try {
       let url = audioCache.get(key);
       if (!url) { url = URL.createObjectURL(await api("tts", { text })); audioCache.set(key, url); }
@@ -231,7 +234,7 @@ async function speak(text) {
     } catch { /* cai para a voz do aparelho */ }
   }
   try {
-    const L = lang === "ja" ? "ja-JP" : "en-US";
+    const L = ({ ja: "ja-JP", es: "es-MX" })[lang] || "en-US";
     const u = new SpeechSynthesisUtterance(text); u.lang = L; u.rate = S.settings.rate;
     const voices = speechSynthesis.getVoices(), same = v => v.lang === L || v.lang === L.replace("-", "_");
     // prefere as vozes mais naturais (Google / "Natural" / "Online") do idioma
@@ -310,7 +313,14 @@ const SAME_SOUND = [["its", "it's"], ["your", "you're"], ["their", "there", "the
   ["three", "3"], ["five", "5"], ["six", "6"], ["seven", "7"], ["nine", "9"], ["ten", "10"], ["wanna", "want to"], ["gonna", "going to"]];
 const SOUND = new Map(); for (const g of SAME_SOUND) for (const w of g) if (!w.includes(" ")) SOUND.set(w.replace(/'/g, ""), g[0].replace(/'/g, ""));
 const sameSound = w => { const k = w.replace(/'/g, ""); return SOUND.get(k) || k; };
-const words = s => String(s).toLowerCase().replace(/[’‘]/g, "'").replace(/\b(wanna)\b/g, "want to").replace(/\b(gonna)\b/g, "going to").replace(/[^a-z0-9'\s-]/g, " ").split(/[\s-]+/).filter(Boolean).map(sameSound);
+// espanhol: sem acentos e com palavras que soam igual (h é mudo, b = v, s = z = c na América Latina)
+const SAME_ES = [["hola", "ola"], ["hay", "ay", "ahi"], ["a", "ha"], ["e", "he"], ["echo", "hecho"], ["haber", "a ver"], ["tuvo", "tubo"], ["vello", "bello"], ["vaca", "baca"],
+  ["casa", "caza"], ["coser", "cocer"], ["ves", "vez"], ["as", "has", "haz"], ["hasta", "asta"], ["hierba", "hierva"], ["valla", "vaya", "baya"], ["halla", "haya"]];
+const SOUND_ES = new Map(); for (const g of SAME_ES) for (const w of g) if (!w.includes(" ")) SOUND_ES.set(w, g[0]);
+const unaccent = t => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+const words = s => lang === "es"
+  ? unaccent(String(s).toLowerCase()).replace(/[^a-z0-9\s-]/g, " ").split(/[\s-]+/).filter(Boolean).map(w => SOUND_ES.get(w) || w)
+  : String(s).toLowerCase().replace(/[’‘]/g, "'").replace(/\b(wanna)\b/g, "want to").replace(/\b(gonna)\b/g, "going to").replace(/[^a-z0-9'\s-]/g, " ").split(/[\s-]+/).filter(Boolean).map(sameSound);
 // japonês: compara pela leitura; cada kanji vale se você disse o kanji ou a leitura dele
 const toHira = t => String(t).replace(/[\u30a1-\u30f6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
 // partículas は/へ/を soam "wa/e/o": o reconhecimento escreve わ/え/お, então os dois lados são comparados pelo som
@@ -407,7 +417,7 @@ chat.addEventListener("click", e => {
 });
 $("#meBtn").addEventListener("click", () => { const on = $("#set").classList.toggle("on"); $("#meBtn").setAttribute("aria-expanded", on); });
 const saveSettings = () => api("settings", S.settings).catch(x => setStatus(x.message));
-$("#voice").addEventListener("change", e => { S.settings.voice = e.target.value; saveSettings(); speak(lang === "ja" ? "こんにちは！ニイです。" : "Hi! This is how I sound."); });
+$("#voice").addEventListener("change", e => { S.settings.voice = e.target.value; saveSettings(); speak(({ ja: "こんにちは！ニイです。", es: "¡Hola! Así suena mi voz." })[lang] || "Hi! This is how I sound."); });
 $("#rate").addEventListener("input", e => { S.settings.rate = +e.target.value; $("#rateV").textContent = S.settings.rate + "x"; });
 $("#rate").addEventListener("change", saveSettings);
 $("#auto").addEventListener("change", e => { S.settings.auto = e.target.checked; saveSettings(); });

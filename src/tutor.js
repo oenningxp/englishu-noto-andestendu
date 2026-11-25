@@ -76,7 +76,7 @@ export function looseJson(raw) {
   try { return JSON.parse(s.slice(a, b + 1)); } catch { return null; }
 }
 const str = (v, n) => typeof v === "string" ? v.trim().slice(0, n) : "";
-const norm = s => s.toLowerCase().replace(/[^a-z0-9']+/g, " ").trim();
+const norm = s => s.toLowerCase().normalize("NFC").replace(/[^\p{L}\p{N}']+/gu, " ").trim(); // acentos contam (está ≠ esta)
 
 // confere e limpa a resposta da conversa; null se não der para usar
 export function parseReply(raw) {

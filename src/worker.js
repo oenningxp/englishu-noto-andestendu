@@ -2,11 +2,13 @@
 import { checkPassword, hashPassword, checkTotp, randomToken, sha256 } from "./auth.js";
 import * as EN from "./tutor.js";
 import * as JA from "./tutor-ja.js";
+import * as ES from "./tutor-es.js";
 import { unsureWords, aiText } from "./tutor.js";
 
 // os dois professores: Sam (inglês americano) e Nii (japonês)
 const TUTORS = {
   en: { name: "Sam", system: () => EN.SYSTEM, SCHEMA: EN.SCHEMA, buildPrompt: EN.buildPrompt, parseReply: EN.parseReply, EXPLAIN_SYSTEM: EN.EXPLAIN_SYSTEM, EXPLAIN_SCHEMA: EN.EXPLAIN_SCHEMA, explainPrompt: EN.explainPrompt, parseExplain: EN.parseExplain, SIMPLIFY_SYSTEM: EN.SIMPLIFY_SYSTEM, SIMPLIFY_SCHEMA: EN.SIMPLIFY_SCHEMA, simplifyPrompt: EN.simplifyPrompt, parseSimplify: EN.parseSimplify, MORE_SUG_SYSTEM: EN.MORE_SUG_SYSTEM, MORE_SUG_SCHEMA: EN.MORE_SUG_SCHEMA, moreSugPrompt: EN.moreSugPrompt, parseMoreSug: EN.parseMoreSug, stt: "en", tts: "en", plain: t => t },
+  es: { name: "Paco", system: ES.system, SCHEMA: ES.SCHEMA, buildPrompt: ES.buildPrompt, parseReply: ES.parseReply, EXPLAIN_SYSTEM: ES.EXPLAIN_SYSTEM, EXPLAIN_SCHEMA: ES.EXPLAIN_SCHEMA, explainPrompt: ES.explainPrompt, parseExplain: ES.parseExplain, SIMPLIFY_SYSTEM: ES.SIMPLIFY_SYSTEM, SIMPLIFY_SCHEMA: ES.SIMPLIFY_SCHEMA, simplifyPrompt: ES.simplifyPrompt, parseSimplify: ES.parseSimplify, MORE_SUG_SYSTEM: ES.MORE_SUG_SYSTEM, MORE_SUG_SCHEMA: ES.MORE_SUG_SCHEMA, moreSugPrompt: ES.moreSugPrompt, parseMoreSug: ES.parseMoreSug, stt: "es", tts: "es", plain: t => t },
   ja: { name: "Nii", system: JA.system, SCHEMA: JA.SCHEMA, buildPrompt: JA.buildPrompt, parseReply: JA.parseReply, EXPLAIN_SYSTEM: JA.EXPLAIN_SYSTEM, EXPLAIN_SCHEMA: JA.EXPLAIN_SCHEMA, explainPrompt: JA.explainPrompt, parseExplain: JA.parseExplain, SIMPLIFY_SYSTEM: JA.SIMPLIFY_SYSTEM, SIMPLIFY_SCHEMA: JA.SIMPLIFY_SCHEMA, simplifyPrompt: JA.simplifyPrompt, parseSimplify: JA.parseSimplify, MORE_SUG_SYSTEM: JA.MORE_SUG_SYSTEM, MORE_SUG_SCHEMA: JA.MORE_SUG_SCHEMA, moreSugPrompt: JA.moreSugPrompt, parseMoreSug: JA.parseMoreSug, stt: "ja", tts: "jp", plain: JA.plain }
 };
 
@@ -41,7 +43,8 @@ const LOCAL_SEED = [
   ["manoel", "Manoel", "z2kK5JIM__qcpEhJiHd0RA", "MhLM84SWtlxXd2r32t9xtknCbQwzgMcBA2FrucacWbU"],
   ["vitoria", "Vitória", "ffh1RfARQQxEo7J1dNOnig", "1svgiDcsbht7nzTtRG7Heuwjd7XOIj6X7zn98MQ2GUw"],
   ["maria", "Maria", "5NOlWu5TItRRth4LBv3jmA", "cVTUBTeKJ61DvZ3Jdxv46B9UEP2yucv3QuhWiY5AIH0"],
-  ["wictor", "Wictor", "7uJWuM7MQlU2UxdKfFbrbQ", "OsbHBSoXmJZOPYLndgj4TdHuM6U6tI5YEcDL076Kroo"]
+  ["wictor", "Wictor", "7uJWuM7MQlU2UxdKfFbrbQ", "OsbHBSoXmJZOPYLndgj4TdHuM6U6tI5YEcDL076Kroo"],
+  ["rodrigo", "Rodrigo", "Lv7eKAldfKdNeNcQesyOGg", "zTGgxM9QgTNTlClw-dQmzNYkvtO80VbGsNn_THTF9Mg"]
 ]; // [usuário, nome, sal, hash] — senha inicial 123456
 
 // ---------- tabelas do Papo (as contas são as do Gothic, tabela users, só leitura)
@@ -152,12 +155,14 @@ async function toBytes(r) {
   if (a instanceof ReadableStream) return new Uint8Array(await new Response(a).arrayBuffer());
   return null;
 }
+const VOICES = { en: { model: TTS_MODEL, speaker: TTS_SPEAKER }, es: { model: "@cf/deepgram/aura-2-es" } }; // espanhol: voz padrão da Deepgram
 async function serverVoice(env, text, lang) {
-  if (lang !== "en") return { bytes: null, tried: [{ model: "nenhum", error: "sem voz japonesa no servidor" }] };
+  const v = VOICES[lang];
+  if (!v) return { bytes: null, tried: [{ model: "nenhum", error: "sem voz do servidor para este idioma" }] };
   try {
-    const bytes = await toBytes(await env.AI.run(TTS_MODEL, { text, speaker: TTS_SPEAKER, encoding: "mp3" }));
-    return { bytes: bytes && bytes.byteLength ? bytes : null, tried: [{ model: TTS_MODEL, size: bytes ? bytes.byteLength : 0 }] };
-  } catch (e) { if (quotaErr(e)) throw e; return { bytes: null, tried: [{ model: TTS_MODEL, error: String(e && e.message || e).slice(0, 300) }] }; }
+    const bytes = await toBytes(await env.AI.run(v.model, { text, ...(v.speaker ? { speaker: v.speaker } : {}), encoding: "mp3" }));
+    return { bytes: bytes && bytes.byteLength ? bytes : null, tried: [{ model: v.model, size: bytes ? bytes.byteLength : 0 }] };
+  } catch (e) { if (quotaErr(e)) throw e; return { bytes: null, tried: [{ model: v.model, error: String(e && e.message || e).slice(0, 300) }] }; }
 }
 const b64 = buf => { let s = ""; const a = new Uint8Array(buf); for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode(...a.subarray(i, i + 0x8000)); return btoa(s); };
 
@@ -203,8 +208,9 @@ async function api(req, env, path) {
     return json({ ok: true }, 200, { "Set-Cookie": setCookie("", 0) });
   }
   if (!s || s.stage !== "full") return path === "me" ? json({ user: null }) : err("Entre na sua conta.", 401);
-  const lang = (body.lang || new URL(req.url).searchParams.get("lang")) === "ja" ? "ja" : "en", T = TUTORS[lang];
-  const sk = lang === "ja" ? "ja:" + s.id : s.id; // cada idioma tem a sua conversa
+  const askedLang = body.lang || new URL(req.url).searchParams.get("lang");
+  const lang = TUTORS[askedLang] ? askedLang : "en", T = TUTORS[lang];
+  const sk = lang === "en" ? s.id : lang + ":" + s.id; // cada idioma tem a sua conversa
   if (path === "password" && method === "POST") {
     if (!s.local) return err("A senha da conta Gothic se troca no Gothic.");
     const nw = String(body.new || "");
@@ -342,7 +348,7 @@ async function api(req, env, path) {
   if (path === "tts" && method === "POST") {
     const text = T.plain(String(body.text || "")).trim().slice(0, 600); if (!text) return err("Sem texto.");
     try {
-      if (lang !== "en") return err("Sem voz japonesa no servidor.", 501);
+      if (!VOICES[lang]) return err("Sem voz do servidor para este idioma.", 501);
       if (!(await useQuota(env, s))) return err("Você chegou no limite de hoje. Use a voz do aparelho (Ajustes).", 429);
       const { bytes } = await serverVoice(env, text, lang);
       if (!bytes) return err("Voz indisponível.", 502);
@@ -365,7 +371,7 @@ async function api(req, env, path) {
   // diagnóstico da voz (só o dono): /api/tts-check?lang=ja mostra o que o servidor conseguiu gerar
   if (path === "tts-check" && method === "GET") {
     if (!isOwner(env, s)) return err("Só o dono.", 403);
-    try { const { bytes, tried } = await serverVoice(env, "Hello! This is Sam.", lang); return json({ ok: !!bytes, tried }); }
+    try { const { bytes, tried } = await serverVoice(env, lang === "es" ? "¡Hola! Soy Paco." : "Hello! This is Sam.", lang); return json({ ok: !!bytes, tried }); }
     catch (e) { return json({ ok: false, error: String(e && e.message || e) }); }
   }
   return err("não encontrado", 404);

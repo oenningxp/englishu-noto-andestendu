@@ -57,3 +57,9 @@ assert.equal(shownSug({ msgs: [] }), "");
 assert.equal(parseMoreSug({ suggestions: [{ text: "a", pt: "b" }] }).length, 1);
 assert.equal(parseMoreSug({ suggestions: [] }), null);
 console.log("mais sugestões ok");
+// espanhol: acento muda a palavra (está ≠ esta)
+const acc = parseReply({ reply: "ok", corrections: [{ type: "grammar", said: "esta bien", better: "está bien", why_pt: "x" }], corrected: "Está bien." });
+assert.equal(acc.corrections.length, 1, "correção só de acento não some");
+import { buildPrompt as bpEs, SYSTEM as SYS_ES } from "../src/tutor-es.js";
+assert.match(bpEs({ msgs: [{ role: "ai", text: "¡Hola!" }] }), /PACO: ¡Hola!/); assert.match(SYS_ES, /vosotros/);
+console.log("paco ok");
