@@ -23,6 +23,7 @@ const AI = { run: async (model, input) => {
   if (model.includes("whisper")) return { text: " I live in a big sheep ", segments: [{ words: [{ word: "sheep", probability: 0.4 }] }] };
   if (model.includes("aura")) return new Response("fake-mp3").body;
   const sys = input.messages[0].content;
+  if (sys.startsWith("You help a Brazilian beginner practice speaking Japanese")) return { response: { suggestions: [{ text: "アメリカが好{す}きです。", romaji: "Amerika ga suki desu.", pt: "Gosto da América." }] } };
   if (sys.startsWith("You are Nii")) return { response: { reply: "こんにちは！ブラジル人{じん}ですか？", romaji: "Konnichiwa! Burajirujin desu ka?", reply_pt: "Oi! Você é brasileiro?", topic_pt: "Apresentação", level: "Iniciante", corrections: [], corrected: "", corrected_romaji: "" } };
   if (sys.startsWith("You help a Brazilian")) return { output: [{ type: "message", content: [{ type: "output_text", text: '{"explain_pt":"Mais fácil.","examples":[{"en":"I live on a ship.","pt":"Moro num navio.","emoji":"🚢"}]}' }] }] };
   if (sys.includes("did not understand your last message")) return { choices: [{ message: { content: '{"simple_en":"What is your job? 💼","hint_pt":"job = trabalho"}' } }] };
@@ -98,6 +99,8 @@ assert.equal(ja.data.state.msgs.length, 1); assert.equal(ja.data.state.msgs[0].r
 const r1 = await worker.fetch(new Request("https://papo.test/api/me?lang=ja", { headers: { Cookie: cookie } }), env);
 assert.equal((await r1.json()).state.msgs[0].text, "こんにちは！ブラジル人{じん}ですか？");
 assert.equal((await call("me")).data.state.msgs[0].text, "Cool! What do you do?", "o Sam continua com a conversa dele");
+const ms = await call("moresug", { id: ja.data.state.msgs[0].id, lang: "ja" });
+assert.equal(ms.data.state.msgs[0].sug[0].romaji, "Amerika ga suki desu.");
 assert.ok((await call("cmd", { cmd: "save", lang: "ja" })).data.state.chatId);
 assert.equal((await call("chats")).data.chats.length, 0, "conversas salvas do Sam não mostram as do Nii");
 const r2 = await worker.fetch(new Request("https://papo.test/api/chats?lang=ja", { headers: { Cookie: cookie } }), env);

@@ -119,7 +119,7 @@ function sugHtml(m) {
   return `<div class="sugs"><span class="lbl">Você pode responder (toque em Falar e repita):</span>${m.sug.map((x, k) => {
     const key = "sug:" + m.id + ":" + k, on = rec && target === key;
     return `<div class="sug"><div class="st">${tx(x.text)}${rom(x.romaji)}${x.pt ? `<span class="why">${esc(x.pt)}</span>` : ""}</div><div class="row"><button class="alt" data-sughear="${key}">Ouvir</button><button class="${on ? "rec" : ""}" data-sugsay="${key}">${on ? "Parar" : "Falar"}</button><button class="alt" data-sugtype="${key}">Escrever</button></div></div>`;
-  }).join("")}</div>`;
+  }).join("")}<button class="more" data-moresug="${m.id}">${waiting === "sug" + m.id ? "Criando novas…" : "Mais sugestões (outras respostas)"}</button></div>`;
 }
 const sugOf = key => { const [, id, k] = key.split(":"); const m = S.msgs.find(x => x.id === id); return m && m.sug && m.sug[+k]; };
 let pendingSug = null;
@@ -392,6 +392,7 @@ chat.addEventListener("click", e => {
     else if (a === "force-open") openChat(openId, true);
     else render();
   }
+  else if (b.dataset.moresug) extraAsk("moresug", { id: b.dataset.moresug }, "sug" + b.dataset.moresug);
   else if (b.dataset.sughear) speak(sugOf(b.dataset.sughear)?.text);
   else if (b.dataset.sugsay) { if (rec && target === b.dataset.sugsay) stopRec(); else startRec(b.dataset.sugsay); }
   else if (b.dataset.sugtype) { const x = sugOf(b.dataset.sugtype); if (x) { inp.value = lang === "ja" ? plainJ(x.text) : x.text; inp.focus(); } }

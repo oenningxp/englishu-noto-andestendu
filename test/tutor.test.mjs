@@ -49,5 +49,11 @@ const both = parseReply({ reply: "Hi!", corrections: [{ type: "grammar", said: "
 assert.equal(both.corrections[0].informal, "I'm gonna travel"); assert.equal(both.corrected, "I'm going to travel.");
 console.log("informal ok");
 const sg = parseReply({ reply: "Hi! Where are you from?", suggestions: [{ text: "I'm from Brazil.", pt: "Sou do Brasil." }, { text: "" }, { text: "Brazil!", pt: "Brasil!" }, { text: "a" }, { text: "b" }] });
-assert.equal(sg.suggestions.length, 3); assert.equal(sg.suggestions[0].pt, "Sou do Brasil."); assert.equal("romaji" in sg.suggestions[0], false);
+assert.equal(sg.suggestions.length, 4, "vazias saem, até 5"); assert.equal(sg.suggestions[0].pt, "Sou do Brasil."); assert.equal("romaji" in sg.suggestions[0], false);
 console.log("sugestões ok");
+import { shownSug, parseMoreSug } from "../src/tutor.js";
+assert.match(shownSug({ msgs: [{ role: "ai", sug: [{ text: "Yes, I do." }], sugOld: [{ text: "No." }] }] }), /"No\."; "Yes, I do\."/);
+assert.equal(shownSug({ msgs: [] }), "");
+assert.equal(parseMoreSug({ suggestions: [{ text: "a", pt: "b" }] }).length, 1);
+assert.equal(parseMoreSug({ suggestions: [] }), null);
+console.log("mais sugestões ok");

@@ -6,8 +6,8 @@ import { unsureWords, aiText } from "./tutor.js";
 
 // os dois professores: Sam (inglês americano) e Nii (japonês)
 const TUTORS = {
-  en: { name: "Sam", system: () => EN.SYSTEM, SCHEMA: EN.SCHEMA, buildPrompt: EN.buildPrompt, parseReply: EN.parseReply, EXPLAIN_SYSTEM: EN.EXPLAIN_SYSTEM, EXPLAIN_SCHEMA: EN.EXPLAIN_SCHEMA, explainPrompt: EN.explainPrompt, parseExplain: EN.parseExplain, SIMPLIFY_SYSTEM: EN.SIMPLIFY_SYSTEM, SIMPLIFY_SCHEMA: EN.SIMPLIFY_SCHEMA, simplifyPrompt: EN.simplifyPrompt, parseSimplify: EN.parseSimplify, stt: "en", tts: "en", plain: t => t },
-  ja: { name: "Nii", system: JA.system, SCHEMA: JA.SCHEMA, buildPrompt: JA.buildPrompt, parseReply: JA.parseReply, EXPLAIN_SYSTEM: JA.EXPLAIN_SYSTEM, EXPLAIN_SCHEMA: JA.EXPLAIN_SCHEMA, explainPrompt: JA.explainPrompt, parseExplain: JA.parseExplain, SIMPLIFY_SYSTEM: JA.SIMPLIFY_SYSTEM, SIMPLIFY_SCHEMA: JA.SIMPLIFY_SCHEMA, simplifyPrompt: JA.simplifyPrompt, parseSimplify: JA.parseSimplify, stt: "ja", tts: "jp", plain: JA.plain }
+  en: { name: "Sam", system: () => EN.SYSTEM, SCHEMA: EN.SCHEMA, buildPrompt: EN.buildPrompt, parseReply: EN.parseReply, EXPLAIN_SYSTEM: EN.EXPLAIN_SYSTEM, EXPLAIN_SCHEMA: EN.EXPLAIN_SCHEMA, explainPrompt: EN.explainPrompt, parseExplain: EN.parseExplain, SIMPLIFY_SYSTEM: EN.SIMPLIFY_SYSTEM, SIMPLIFY_SCHEMA: EN.SIMPLIFY_SCHEMA, simplifyPrompt: EN.simplifyPrompt, parseSimplify: EN.parseSimplify, MORE_SUG_SYSTEM: EN.MORE_SUG_SYSTEM, MORE_SUG_SCHEMA: EN.MORE_SUG_SCHEMA, moreSugPrompt: EN.moreSugPrompt, parseMoreSug: EN.parseMoreSug, stt: "en", tts: "en", plain: t => t },
+  ja: { name: "Nii", system: JA.system, SCHEMA: JA.SCHEMA, buildPrompt: JA.buildPrompt, parseReply: JA.parseReply, EXPLAIN_SYSTEM: JA.EXPLAIN_SYSTEM, EXPLAIN_SCHEMA: JA.EXPLAIN_SCHEMA, explainPrompt: JA.explainPrompt, parseExplain: JA.parseExplain, SIMPLIFY_SYSTEM: JA.SIMPLIFY_SYSTEM, SIMPLIFY_SCHEMA: JA.SIMPLIFY_SCHEMA, simplifyPrompt: JA.simplifyPrompt, parseSimplify: JA.parseSimplify, MORE_SUG_SYSTEM: JA.MORE_SUG_SYSTEM, MORE_SUG_SCHEMA: JA.MORE_SUG_SCHEMA, moreSugPrompt: JA.moreSugPrompt, parseMoreSug: JA.parseMoreSug, stt: "ja", tts: "jp", plain: JA.plain }
 };
 
 const SESSION_DAYS = 30, MAX_MSGS = 200, MAX_AUDIO = 3 * 1024 * 1024;
@@ -242,6 +242,19 @@ async function api(req, env, path) {
     return json({ state: st });
   }
   // --- "explicar de outro jeito" (uma correção) e "não entendi" (uma fala do Sam)
+  // --- "Mais sugestões": troca as sugestões da última fala por outras novas
+  if (path === "moresug" && method === "POST") {
+    const st = await loadState(env, sk), m = st.msgs.find(x => x.id === body.id);
+    if (!m || m.role !== "ai") return err("Mensagem não encontrada.", 404);
+    if (!(await useQuota(env, s))) return err("Você chegou no limite de falas de hoje. Amanhã tem mais!", 429);
+    let more;
+    try { more = await aiJson(env, T.MORE_SUG_SYSTEM, T.moreSugPrompt(st, m), T.MORE_SUG_SCHEMA, T.parseMoreSug, 1200); }
+    catch (e) { console.error(e); return err(quotaErr(e) ? QUOTA : "Não consegui criar sugestões agora. Tente de novo.", quotaErr(e) ? 429 : 502); }
+    if (!more) return err("Não consegui criar sugestões agora. Tente de novo.", 502);
+    m.sugOld = [...(m.sugOld || []), ...(m.sug || [])].slice(-15); m.sug = more; st.dirty = true;
+    await saveState(env, sk, st);
+    return json({ state: st });
+  }
   if ((path === "explain" || path === "simplify") && method === "POST") {
     const st = await loadState(env, sk), m = st.msgs.find(x => x.id === body.id);
     if (!m) return err("Mensagem não encontrada.", 404);

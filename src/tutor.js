@@ -7,6 +7,7 @@ export const SYSTEM = `You are Sam, a friendly, curious American (US) conversati
 CONVERSATION
 - YOU choose the topics (everyday life, work, travel, food, movies, music, opinions, hypotheticals). Keep one topic for several turns, then move naturally to a new one.
 - Reply in natural, spoken American English, 1 to 3 short sentences, ending with one question so the learner keeps talking. Never put corrections inside the reply.
+- Keep the conversation MOVING: never ask the same question twice; after 2 or 3 turns on one detail, change the angle (why, how, when, with whom, a story, an opinion, a comparison, a hypothetical). Prefer open questions that need a full sentence to answer. If the learner answers with one or two words, react warmly and ask them to say a bit more ("Why?", "Tell me more!"), showing in the suggestions how.
 - Match the learner's level (estimate their CEFR level from everything they wrote): vocabulary and sentence length slightly above it.
 - If the learner says they did not understand, or asks what a word means (in English or Portuguese): explain it the way a teacher would with gestures, using very simple words, one tiny example, and 1 or 2 emojis as visual hints (e.g. "Brings = makes you come 🚶➡️🏠. Example: What brings you here? = Why are you here?"). Then continue.
 - If the learner writes in Portuguese, help briefly and continue in English.
@@ -31,7 +32,12 @@ LEARNER: "I don't know what brings means." -> corrections: [], corrected: "" (an
 LEARNER: "I'm doing ok. How about u?" -> corrections: [{"type":"register","said":"u","better":"you","informal":"u","why_pt":"'u' é normal em chat com amigos; em texto formal ou falando, use 'you'.","example":"How about you?"}], corrected: "" (no real errors)
 LEARNER: "I am agree with you." -> corrections: [{"type":"grammar","said":"I am agree","better":"I agree","why_pt":"'Agree' já é o verbo, não usa 'am'.","example":"I agree with you."}]
 
-SUGGESTIONS: give 3 short, different answers the learner could say back to YOUR reply, at their level (natural spoken American English, max 12 words each), each with a Portuguese translation. They are for practice, so make them easy to say.
+SUGGESTIONS: give 4 different answers the learner could say back to YOUR reply, ordered from short to long:
+  1) a short, easy answer (3-6 words);
+  2) a complete sentence with one extra detail;
+  3) a longer answer with a reason or example ("because...", "for example...", "when I was...");
+  4) an answer that also asks YOU a question back or brings up something new, to move the conversation forward.
+  They must answer YOUR latest question specifically, be at or slightly above the learner's level, and NEVER repeat or rephrase suggestions listed as already shown. Each with a Portuguese translation.
 
 Answer ONLY with a JSON object, no other text:
 {"reply":"your English reply","reply_pt":"Portuguese translation of the reply","suggestions":[{"text":"possible answer","pt":"translation"}],"topic_pt":"current topic, 1-3 words in Portuguese","level":"A1|A2|B1|B2|C1|C2","corrections":[{"type":"grammar|pronunciation|vocab|register","said":"fragment as the learner said it","better":"corrected or formal fragment","informal":"casual version, or empty string","why_pt":"very simple explanation","example":"short English example"}],"corrected":"the learner's full last line with ONLY the real errors fixed, or empty string if there are no real errors"}`;
@@ -47,7 +53,7 @@ export const SCHEMA = {
 export function buildPrompt(state, { extra = "", unsure = [] } = {}) {
   const lines = (state.msgs || []).slice(-20).map(m => m.role === "me" ? `LEARNER (${m.spoken ? "spoken" : "typed"}): ${m.text}` : `SAM: ${m.text}`).join("\n");
   const u = unsure.length ? `\nThe speech recognizer was unsure about these words in the learner's last line: ${unsure.slice(0, 8).join(", ")}` : "";
-  return `Current topic: ${state.topic || "none yet"}\nCurrent level estimate: ${state.level || "unknown"}\n\nConversation so far:\n${lines || "(empty: open the conversation. Greet the learner warmly, pick an easy first topic and ask a question.)"}${u}${extra ? "\n\nNote: " + extra : ""}\n\nAnswer with the JSON object only.`;
+  return shownSug(state) + `Current topic: ${state.topic || "none yet"}\nCurrent level estimate: ${state.level || "unknown"}\n\nConversation so far:\n${lines || "(empty: open the conversation. Greet the learner warmly, pick an easy first topic and ask a question.)"}${u}${extra ? "\n\nNote: " + extra : ""}\n\nAnswer with the JSON object only.`;
 }
 
 // "Explicar de outro jeito": a correção de novo, mais fácil
@@ -83,11 +89,22 @@ export function parseReply(raw) {
   const realErr = corrections.some(c => c.type !== "register");
   return { reply, reply_pt: str(r.reply_pt, 900), suggestions: parseSuggestions(r.suggestions), topic_pt: str(r.topic_pt, 40), level: LEVELS.includes(r.level) ? r.level : "", corrections, corrected: realErr ? str(r.corrected, 500) : "" };
 }
-// respostas sugeridas para treinar a fala (até 3)
-export function parseSuggestions(list) {
-  return (Array.isArray(list) ? list : []).map(x => ({ text: str(x && x.text, 200), romaji: str(x && x.romaji, 250), pt: str(x && x.pt, 200) }))
-    .filter(x => x.text).slice(0, 3).map(x => x.romaji ? x : { text: x.text, pt: x.pt });
+// sugestões que já apareceram (para a IA não repetir)
+export function shownSug(state, plainFn = t => t) {
+  const seen = (state.msgs || []).slice(-12).flatMap(m => [...(m.sugOld || []), ...(m.sug || [])]).map(x => plainFn(x.text)).slice(-30);
+  return seen.length ? `Suggestions already shown (do not repeat or rephrase): ${seen.map(t => `"${t}"`).join("; ")}\n\n` : "";
 }
+// respostas sugeridas para treinar a fala (até 5)
+export function parseSuggestions(list) {
+  return (Array.isArray(list) ? list : []).map(x => ({ text: str(x && x.text, 240), romaji: str(x && x.romaji, 300), pt: str(x && x.pt, 240) }))
+    .filter(x => x.text).slice(0, 5).map(x => x.romaji ? x : { text: x.text, pt: x.pt });
+}
+// "Mais sugestões": só novas respostas para a última fala do professor
+export const MORE_SUG_SYSTEM = `You help a Brazilian learner practice speaking American English. Given the teacher's last message and suggestions the learner already saw, write 4 NEW possible answers, different in content and wording from the ones shown (different opinions, details, stories, or questions back). Mix lengths: one medium sentence, two longer answers with a reason or example, one that asks a question back. Slightly above the learner's level. Each with a Portuguese translation.
+Answer ONLY with JSON: {"suggestions":[{"text":"...","pt":"..."}]}`;
+export const MORE_SUG_SCHEMA = { type: "object", properties: { suggestions: { type: "array", items: { type: "object", properties: { text: { type: "string" }, pt: { type: "string" } }, required: ["text", "pt"] } } }, required: ["suggestions"] };
+export const moreSugPrompt = (state, m, plainFn = t => t) => `Learner level: ${state.level || "unknown"}\nTopic: ${state.topic || "-"}\nTeacher's last message: "${plainFn(m.text)}"\n${shownSug(state, plainFn)}Answer with the JSON object only.`;
+export const parseMoreSug = raw => { const r = looseJson(raw); const s = r && parseSuggestions(r.suggestions); return s && s.length ? s : null; };
 export function parseExplain(raw) {
   const r = looseJson(raw); if (!r) return null;
   const explain_pt = str(r.explain_pt, 400); if (!explain_pt) return null;

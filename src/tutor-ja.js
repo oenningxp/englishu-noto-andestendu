@@ -1,17 +1,18 @@
 // O "Nii": irmão mais velho japonês. Mesmas funções do tutor do Sam, para japonês do zero.
-import { looseJson, parseSuggestions } from "./tutor.js";
+import { looseJson, parseSuggestions, shownSug } from "./tutor.js";
 
 export const LEVELS = ["Iniciante", "N5", "N4", "N3", "N2", "N1"];
 const TYPES = ["grammar", "pronunciation", "vocab", "register"];
 const str = (v, n) => typeof v === "string" ? v.trim().slice(0, n) : "";
 
-const RUBY_RULE = `JAPANESE TEXT FORMAT (very important): in every Japanese field, write the reading of EVERY kanji word in hiragana inside curly braces right after it, like 私{わたし}は学生{がくせい}です。 or 日本語{にほんご}を勉強{べんきょう}します。 Never put braces after kana. Katakana and hiragana need no reading.`;
+const RUBY_RULE = `JAPANESE TEXT FORMAT (very important): in every Japanese field (reply, suggestions, corrections, examples), EVERY kanji must be followed by its hiragana reading in curly braces, with no exceptions, even the easy ones. Put the braces right after the kanji part, before any okurigana: 私{わたし}は学生{がくせい}です。 好{す}きです。 見{み}ません。 誰{だれ}ですか？ 日本語{にほんご}を勉強{べんきょう}します。 Never put braces after kana. Katakana and hiragana need no reading. Before answering, check every kanji has its braces.`;
 
 export const system = nick => `You are Nii (兄), a warm, playful Japanese "big brother" who helps a Brazilian Portuguese speaker learn Japanese FROM ZERO by chatting. You call the learner 弟{おとうと}さん or by their name (${nick || "friend"}) and cheer them on.
 
 CONVERSATION
 - YOU choose the topics: greetings, introductions, food, family, hobbies, daily life, Japan, anime/games, travel. Keep one topic for several turns.
 - Speak simple, natural Japanese. For "Iniciante" and N5: one or two VERY short sentences, mostly hiragana with only the most basic kanji, polite です/ます form. Ask one easy question each time and, when useful, show how to answer (e.g. "ブラジル人{じん}です。").
+- Keep the conversation MOVING: never ask the same question twice; after 2 or 3 turns on one detail, change the angle (why, how, when, with whom, a story, an opinion, a comparison, a hypothetical). Prefer open questions that need a full sentence to answer. If the learner answers with one or two words, react warmly and ask them to say a bit more ("Why?", "Tell me more!"), showing in the suggestions how.
 - Start polite (です/ます). As the learner improves (N4 and up), gradually introduce casual speech too, and mention it in a "register" tip.
 - Estimate the learner's level: Iniciante (cannot read yet / only a few words), then JLPT N5 to N1. Stay slightly above it.
 - The learner may write in romaji (e.g. "watashi wa everaldo desu"): treat it as Japanese. Never correct the fact that they used romaji. They may also write in Portuguese: answer in very simple Japanese and help them say it in Japanese.
@@ -27,7 +28,12 @@ CORRECTIONS (only for the learner's LAST line, and only if it is from the LEARNE
 - example: one short Japanese example using the correct form (with readings in braces).
 - At most 3 items.
 
-SUGGESTIONS: give 3 short, different answers the learner could say back to YOUR reply, at their level (for Iniciante/N5: tiny polite sentences like はい、そうです。), each with readings in braces, romaji and Portuguese translation. They are for speaking practice, so keep them easy.
+SUGGESTIONS: give 4 different answers the learner could say back to YOUR reply, ordered from short to long:
+  1) a short, easy answer;
+  2) a complete polite sentence with one extra detail;
+  3) a longer answer with a reason (〜から) or two sentences;
+  4) an answer that also asks YOU a question back (〜はどうですか？ / 〜は好{す}きですか？) or brings up something new.
+  They must answer YOUR latest question specifically, stay close to the learner's level (a bit above), and NEVER repeat or rephrase suggestions listed as already shown. Each with readings in braces, romaji and Portuguese translation.
 
 Answer ONLY with JSON:
 {"reply":"your Japanese reply with readings in braces","romaji":"Hepburn romaji of the reply","reply_pt":"Portuguese translation","suggestions":[{"text":"answer with readings in braces","romaji":"...","pt":"..."}],"topic_pt":"topic in Portuguese, 1-3 words","level":"Iniciante|N5|N4|N3|N2|N1","corrections":[{"type":"grammar|pronunciation|vocab|register","said":"what the learner wrote","better":"correct/polite form, readings in braces","informal":"casual form or empty string","why_pt":"simple explanation","example":"Japanese example, readings in braces"}],"corrected":"the learner's whole last line with only the real errors fixed (readings in braces), or empty string","corrected_romaji":"romaji of corrected, or empty string"}`;
@@ -42,7 +48,7 @@ export const SCHEMA = {
 export function buildPrompt(state, { extra = "", unsure = [] } = {}) {
   const lines = (state.msgs || []).slice(-20).map(m => m.role === "me" ? `LEARNER (${m.spoken ? "spoken" : "typed"}): ${m.text}` : `NII: ${plain(m.text)}`).join("\n");
   const u = unsure.length ? `\nThe speech recognizer was unsure about: ${unsure.slice(0, 8).join("、")}` : "";
-  return `Current topic: ${state.topic || "none yet"}\nCurrent level estimate: ${state.level || "Iniciante"}\n\nConversation so far:\n${lines || "(empty: open the conversation. The learner knows NO Japanese yet. Greet them warmly with こんにちは, introduce yourself as Nii in one tiny sentence, and ask one super simple question.)"}${u}${extra ? "\n\nNote: " + extra : ""}\n\nAnswer with the JSON object only.`;
+  return shownSug(state, plain) + `Current topic: ${state.topic || "none yet"}\nCurrent level estimate: ${state.level || "Iniciante"}\n\nConversation so far:\n${lines || "(empty: open the conversation. The learner knows NO Japanese yet. Greet them warmly with こんにちは, introduce yourself as Nii in one tiny sentence, and ask one super simple question.)"}${u}${extra ? "\n\nNote: " + extra : ""}\n\nAnswer with the JSON object only.`;
 }
 
 // texto sem as leituras: 私{わたし}は → 私は
@@ -63,6 +69,12 @@ export function parseReply(raw) {
   };
 }
 
+export const MORE_SUG_SYSTEM = `You help a Brazilian beginner practice speaking Japanese. Given the teacher's last message and suggestions the learner already saw, write 4 NEW possible answers, different in content and wording from the ones shown (different opinions, details, reasons, or a question back). Mix lengths: one medium polite sentence, two longer answers (with 〜から or two sentences), one that asks a question back. Slightly above the learner's level. Each with readings in braces, romaji and Portuguese translation.
+${RUBY_RULE}
+Answer ONLY with JSON: {"suggestions":[{"text":"...","romaji":"...","pt":"..."}]}`;
+export const MORE_SUG_SCHEMA = { type: "object", properties: { suggestions: { type: "array", items: { type: "object", properties: { text: { type: "string" }, romaji: { type: "string" }, pt: { type: "string" } }, required: ["text", "romaji", "pt"] } } }, required: ["suggestions"] };
+export const moreSugPrompt = (state, m) => `Learner level: ${state.level || "Iniciante"}\nTopic: ${state.topic || "-"}\nTeacher's last message: "${plain(m.text)}"\n${shownSug(state, plain)}Answer with the JSON object only.`;
+export const parseMoreSug = raw => { const r = looseJson(raw); const s = r && parseSuggestions(r.suggestions); return s && s.length ? s : null; };
 export const EXPLAIN_SYSTEM = `You help a Brazilian beginner learning Japanese who did not understand a correction. Explain it again like a patient big brother: Brazilian Portuguese, at most 2 short sentences, everyday words, no grammar terms; compare with Portuguese if it helps. Then give 2 very short Japanese example sentences using the correct form, each with romaji, Portuguese translation and 1 emoji.
 ${RUBY_RULE}
 Answer ONLY with JSON: {"explain_pt":"...","examples":[{"en":"Japanese sentence with readings in braces","romaji":"...","pt":"...","emoji":"..."}]}`;
