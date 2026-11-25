@@ -217,16 +217,28 @@ function toWav(chunks, rate) {
 }
 
 // ---------- treino da frase corrigida
-const words = s => String(s).toLowerCase().replace(/[^a-z0-9'\s-]/g, " ").split(/\s+/).filter(Boolean);
+// palavras que soam igual valem como acerto: o reconhecimento de voz não tem como saber qual delas você quis dizer
+const SAME_SOUND = [["its", "it's"], ["your", "you're"], ["their", "there", "they're"], ["to", "too", "two", "2"], ["for", "four", "4"], ["one", "won", "1"],
+  ["know", "no"], ["knew", "new"], ["right", "write"], ["hear", "here"], ["by", "buy", "bye"], ["whether", "weather"], ["whose", "who's"], ["were", "we're"],
+  ["ok", "okay"], ["see", "sea"], ["son", "sun"], ["eight", "ate", "8"], ["hour", "our"], ["wait", "weight"], ["week", "weak"], ["meet", "meat"], ["piece", "peace"], ["knight", "night"], ["flour", "flower"], ["mail", "male"], ["sale", "sail"], ["tail", "tale"], ["way", "weigh"],
+  ["three", "3"], ["five", "5"], ["six", "6"], ["seven", "7"], ["nine", "9"], ["ten", "10"], ["wanna", "want to"], ["gonna", "going to"]];
+const SOUND = new Map(); for (const g of SAME_SOUND) for (const w of g) if (!w.includes(" ")) SOUND.set(w.replace(/'/g, ""), g[0].replace(/'/g, ""));
+const sameSound = w => { const k = w.replace(/'/g, ""); return SOUND.get(k) || k; };
+const words = s => String(s).toLowerCase().replace(/[’‘]/g, "'").replace(/\b(wanna)\b/g, "want to").replace(/\b(gonna)\b/g, "going to").replace(/[^a-z0-9'\s-]/g, " ").split(/[\s-]+/).filter(Boolean).map(sameSound);
 function grade(id, said) {
   const m = S.msgs.find(x => x.id === id); if (!m || !m.fix) return;
-  const orig = m.fix.corrected.split(/\s+/).filter(Boolean), a = orig.map(w => words(w).join("")), b = words(said);
+  // cada palavra da frase vira 1 ou mais pedaços (ex.: "wanna" = want + to); a palavra conta se todos os pedaços foram ouvidos
+  const orig = m.fix.corrected.split(/\s+/).filter(Boolean), a = [], owner = [];
+  orig.forEach((w, k) => words(w).forEach(t => { a.push(t); owner.push(k); }));
+  const b = words(said);
   const L = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
   for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
-  const hit = new Set(); let i = 0, j = 0;
-  while (i < a.length && j < b.length) { if (a[i] === b[j]) { hit.add(i); i++; j++; } else if (L[i + 1][j] >= L[i][j + 1]) i++; else j++; }
-  const pct = a.length ? Math.round(hit.size / a.length * 100) : 0;
-  practice[id] = `<b>${pct}% das palavras entendidas.</b> ${pct === 100 ? "Mandou bem!" : "As sublinhadas não saíram claras, tente de novo."}<br>${orig.map((w, k) => `<span class="${hit.has(k) ? "ok" : "miss"}">${esc(w)}</span>`).join(" ")}<br><span class="why">Entendi: “${esc(said || "nada")}”</span>`;
+  const got = new Set(); let i = 0, j = 0;
+  while (i < a.length && j < b.length) { if (a[i] === b[j]) { got.add(i); i++; j++; } else if (L[i + 1][j] >= L[i][j + 1]) i++; else j++; }
+  const hit = new Set(orig.map((_, k) => k).filter(k => owner.some((o, t) => o === k) && owner.every((o, t) => o !== k || got.has(t))));
+  const counted = orig.map((_, k) => k).filter(k => owner.includes(k));
+  const pct = counted.length ? Math.round(counted.filter(k => hit.has(k)).length / counted.length * 100) : 0;
+  practice[id] = `<b>${pct}% das palavras entendidas.</b> ${pct === 100 ? "Mandou bem!" : "As sublinhadas não saíram claras, tente de novo."}<br>${orig.map((w, k) => `<span class="${hit.has(k) || !owner.includes(k) ? "ok" : "miss"}">${esc(w)}</span>`).join(" ")}<br><span class="why">Entendi: “${esc(said || "nada")}”</span>`;
   render();
 }
 
