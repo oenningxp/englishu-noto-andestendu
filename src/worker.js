@@ -138,6 +138,28 @@ async function aiJson(env, system, user, schema, parse, maxTokens = 1400) {
   return null;
 }
 const askTutor = (env, T, nick, st, opts) => aiJson(env, T.system(nick), T.buildPrompt(st, opts), T.SCHEMA, T.parseReply);
+// voz do servidor (MeloTTS). Para japonês testa os códigos de idioma até um funcionar e lembra qual foi.
+const TTS_CODES = { en: ["en"], ja: ["ja", "jp", "JP"] };
+let jaCode = null;
+async function toBytes(r) {
+  const a = r && r.audio !== undefined ? r.audio : r;
+  if (typeof a === "string") return Uint8Array.from(atob(a), c => c.charCodeAt(0));
+  if (a instanceof Uint8Array) return a;
+  if (a instanceof ArrayBuffer) return new Uint8Array(a);
+  if (a instanceof ReadableStream) return new Uint8Array(await new Response(a).arrayBuffer());
+  return null;
+}
+async function melo(env, text, lang) {
+  const codes = lang === "ja" && jaCode ? [jaCode] : TTS_CODES[lang] || ["en"], tried = [];
+  for (const code of codes) {
+    try {
+      const bytes = await toBytes(await env.AI.run(TTS_MODEL, { prompt: text, lang: code }));
+      const size = bytes ? bytes.byteLength : 0; tried.push({ code, size });
+      if (size > (lang === "ja" ? 1500 : 0)) { if (lang === "ja") jaCode = code; return { bytes, tried }; }
+    } catch (e) { if (quotaErr(e)) throw e; tried.push({ code, error: String(e && e.message || e).slice(0, 300) }); }
+  }
+  return { bytes: null, tried };
+}
 const b64 = buf => { let s = ""; const a = new Uint8Array(buf); for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode(...a.subarray(i, i + 0x8000)); return btoa(s); };
 
 // ---------- API
@@ -308,12 +330,17 @@ async function api(req, env, path) {
   if (path === "tts" && method === "POST") {
     const text = T.plain(String(body.text || "")).trim().slice(0, 600); if (!text) return err("Sem texto.");
     try {
-      const r = await env.AI.run(TTS_MODEL, { prompt: text, lang: T.tts });
-      const a = r && r.audio;
-      const bytes = typeof a === "string" ? Uint8Array.from(atob(a), c => c.charCodeAt(0)) : a instanceof Uint8Array || a instanceof ArrayBuffer ? a : r instanceof ReadableStream ? r : null;
+      const { bytes } = await melo(env, text, lang);
       if (!bytes) return err("Voz indisponível.", 502);
       return new Response(bytes, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "private, max-age=86400" } });
     } catch (e) { console.error(e); return err(quotaErr(e) ? QUOTA : "Voz indisponível.", quotaErr(e) ? 429 : 502); }
+  }
+  // diagnóstico da voz (só o dono): /api/tts-check?lang=ja mostra o que o servidor conseguiu gerar
+  if (path === "tts-check" && method === "GET") {
+    if (!isOwner(env, s)) return err("Só o dono.", 403);
+    jaCode = null;
+    try { const { bytes, tried } = await melo(env, lang === "ja" ? "こんにちは。ニイです。よろしくおねがいします。" : "Hello! This is Sam.", lang); return json({ ok: !!bytes, tried }); }
+    catch (e) { return json({ ok: false, error: String(e && e.message || e) }); }
   }
   return err("não encontrado", 404);
 }

@@ -49,7 +49,7 @@ function showApp(d) {
 }
 // nome do site muda com o professor
 function applyTitle() {
-  const [a, b] = lang === "ja" ? ["Japonese", "Understand"] : ["Englishu", "Andestêndu"];
+  const [a, b] = lang === "ja" ? ["Japanese", "Understand"] : ["Englishu", "Andestêndu"];
   document.querySelectorAll(".t1").forEach(e => e.textContent = a);
   document.querySelectorAll(".t2").forEach(e => e.textContent = b);
   document.title = `${a} 👎 ${b}`;
@@ -216,7 +216,9 @@ async function speak(text) {
   try {
     const L = lang === "ja" ? "ja-JP" : "en-US";
     const u = new SpeechSynthesisUtterance(text); u.lang = L; u.rate = S.settings.rate;
-    const v = speechSynthesis.getVoices().find(v => v.lang === L || v.lang === L.replace("-", "_")); if (v) u.voice = v;
+    const voices = speechSynthesis.getVoices();
+    const v = voices.find(v => v.lang === L || v.lang === L.replace("-", "_")) || voices.find(v => v.lang.toLowerCase().startsWith(L.slice(0, 2))); if (v) u.voice = v;
+    if (lang === "ja" && voices.length && !v) setStatus("Sem voz japonesa no aparelho. No Android: Configurações → Idioma → Saída de texto para fala → Google → instalar Japonês.");
     const done = new Promise(res => { u.onend = res; u.onerror = res; setTimeout(res, 2000 + text.length * 120); });
     speechSynthesis.speak(u); await done;
   } catch {}
