@@ -36,7 +36,7 @@ h1 .no{display:inline-block;width:.95em;height:.95em;vertical-align:-.12em;margi
 /* app */
 .app{display:grid;grid-template-rows:auto 1fr auto;height:100dvh}
 header{padding:10px max(4vw,14px);border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
-.chips{display:flex;gap:6px;flex-wrap:wrap;flex:1}
+.chips{display:flex;gap:6px;flex-wrap:wrap;flex:1;align-items:center}
 .chip{font-size:13px;padding:3px 10px;border-radius:99px;background:var(--sam);color:var(--samink);white-space:nowrap}
 @media(max-width:600px){header .chips{order:3;flex-basis:100%}header .me{margin-left:auto}}
 .chip.lv{background:var(--note);color:var(--red);font-weight:600}
@@ -122,3 +122,18 @@ button:disabled{opacity:.45;cursor:default}
 .cmdmenu button:last-child{border-bottom:0}
 .saved{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;max-width:420px}
 .saved button{width:100%;text-align:start;min-height:42px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:none;color:var(--ink);cursor:pointer;font-size:15px}
+
+/* professores: Sam (EUA) e Nii (Japão) */
+.langs{display:inline-flex;border:1px solid var(--line);border-radius:99px;overflow:hidden;flex:none}
+.langs button{display:flex;align-items:center;gap:6px;min-height:34px;padding:0 12px;border:0;background:none;color:var(--mute);font-weight:600;font-size:14px;cursor:pointer}
+.langs button svg{width:22px;height:15px;border-radius:3px;box-shadow:0 0 0 1px rgba(127,127,127,.35)}
+.langs button[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+.japrefs{display:flex;flex-direction:column;gap:10px}
+/* japonês */
+ruby rt{font-size:.55em;opacity:.85;font-weight:400}
+.ja .bub,.ja .fixed,.ja .simple .en,.ja .better,.ja .forms b,.ja .exl b,.ja .ex,.ja .inf,.jline{line-height:2.1}
+body.nofuri rt{display:none}
+.romaji{display:block;font-size:13px;opacity:.75;line-height:1.4;margin-top:2px;font-style:normal;font-weight:400}
+body.noromaji .romaji{display:none}
+.ja .bub{font-family:Figtree,"Noto Sans JP","Hiragino Sans","Yu Gothic",system-ui,sans-serif}
+.ja .ex{font-style:normal}

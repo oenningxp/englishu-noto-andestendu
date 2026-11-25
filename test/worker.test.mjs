@@ -21,8 +21,9 @@ const calls = [];
 const AI = { run: async (model, input) => {
   calls.push(model);
   if (model.includes("whisper")) return { text: " I live in a big sheep ", segments: [{ words: [{ word: "sheep", probability: 0.4 }] }] };
-  if (model.includes("melotts")) return { audio: btoa("fake-mp3") };
+  if (model.includes("melotts")) return { audio: btoa(input.lang === "jp" ? "mp3-jp" : "fake-mp3") };
   const sys = input.messages[0].content;
+  if (sys.startsWith("You are Nii")) return { response: { reply: "こんにちは！ブラジル人{じん}ですか？", romaji: "Konnichiwa! Burajirujin desu ka?", reply_pt: "Oi! Você é brasileiro?", topic_pt: "Apresentação", level: "Iniciante", corrections: [], corrected: "", corrected_romaji: "" } };
   if (sys.startsWith("You help a Brazilian")) return { output: [{ type: "message", content: [{ type: "output_text", text: '{"explain_pt":"Mais fácil.","examples":[{"en":"I live on a ship.","pt":"Moro num navio.","emoji":"🚢"}]}' }] }] };
   if (sys.includes("did not understand your last message")) return { choices: [{ message: { content: '{"simple_en":"What is your job? 💼","hint_pt":"job = trabalho"}' } }] };
   if (model === "@cf/test/llm" && input.response_format) throw new Error("schema não suportado");
@@ -88,6 +89,20 @@ const dl = await call("cmd", { cmd: "delete", force: true }); assert.equal(dl.da
 assert.equal((await call("chats")).data.chats.length, 0, "/delete apaga a salva");
 assert.equal((await call("open", { id: chatId })).status, 404);
 assert.equal((await call("cmd", { cmd: "xyz" })).status, 400);
+
+// Nii (japonês): conversa separada da do Sam
+cookie = ""; await call("login", { username: "isabella", password: "123456" });
+const enMe = await call("chat", {}); assert.equal(enMe.data.state.msgs[0].text, "Cool! What do you do?");
+const ja = await call("chat", { lang: "ja" });
+assert.equal(ja.data.state.msgs.length, 1); assert.equal(ja.data.state.msgs[0].romaji, "Konnichiwa! Burajirujin desu ka?"); assert.equal(ja.data.state.level, "Iniciante");
+const r1 = await worker.fetch(new Request("https://papo.test/api/me?lang=ja", { headers: { Cookie: cookie } }), env);
+assert.equal((await r1.json()).state.msgs[0].text, "こんにちは！ブラジル人{じん}ですか？");
+assert.equal((await call("me")).data.state.msgs[0].text, "Cool! What do you do?", "o Sam continua com a conversa dele");
+assert.ok((await call("cmd", { cmd: "save", lang: "ja" })).data.state.chatId);
+assert.equal((await call("chats")).data.chats.length, 0, "conversas salvas do Sam não mostram as do Nii");
+const r2 = await worker.fetch(new Request("https://papo.test/api/chats?lang=ja", { headers: { Cookie: cookie } }), env);
+assert.equal((await r2.json()).chats.length, 1);
+const jtts = await call("tts", { text: "私{わたし}です", lang: "ja" }); assert.equal(new TextDecoder().decode(jtts.data), "mp3-jp");
 
 // contas só do Englishu (sem 2FA)
 cookie = "";

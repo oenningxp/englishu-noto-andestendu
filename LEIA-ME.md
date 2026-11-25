@@ -1,6 +1,11 @@
 # Englishu Noto Andestêndu
 
-Site para praticar conversação em inglês americano com o Sam, uma IA que conversa com você e corrige gramática e pronúncia.
+Site para praticar conversação com correção de gramática e pronúncia, com dois professores de IA:
+
+- **Sam 🇺🇸:** inglês americano.
+- **Nii 🇯🇵:** japonês desde o zero. Mostra furigana e romaji, aceita digitar em romaji, e o treino de repetir compara pela leitura.
+
+Cada professor tem conversa, nível e conversas salvas separados.
 
 Tudo roda na conta gratuita da Cloudflare, a mesma do Gothic:
 

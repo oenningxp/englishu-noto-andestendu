@@ -18,7 +18,7 @@
   <div class="lcard">
     <svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><path d="M8 14a8 8 0 0 1 8-8h22a8 8 0 0 1 8 8v14a8 8 0 0 1-8 8H24l-10 8v-8h2a8 8 0 0 1-8-8z" fill="#d7263d"/><path d="M26 30a8 8 0 0 1 8-8h14a8 8 0 0 1 8 8v12a8 8 0 0 1-8 8h-2v8l-10-8h-2a8 8 0 0 1-8-8z" fill="#2154d6"/></svg>
     <h1>Englishu <svg class="no" viewBox="0 0 24 24" role="img" aria-label="noto"><defs><clipPath id="NOA"><path d="M-4-4H28V-2.9L-4 28.07Z"/></clipPath><clipPath id="NOB"><path d="M28-2.9-4 28.07V32H28Z"/></clipPath><g id="NOH" transform="rotate(180 12 12)"><rect x="2" y="10" width="4" height="11" rx="1.2"/><path d="M8 10 12 3C12.8 1.6 15 2.2 15 4L14.4 9H20C21.2 9 22.1 10.1 21.9 11.3L20.6 19.3C20.4 20.3 19.6 21 18.6 21H8Z"/></g></defs><use href="#NOH" clip-path="url(#NOA)" fill="var(--ink)"/><use href="#NOH" clip-path="url(#NOB)" fill="var(--red)"/></svg> <b>Andestêndu</b></h1>
-    <p class="sub">Converse com o Sam em inglês americano e seja corrigido no caminho. Entre com a sua conta.</p>
+    <p class="sub">Converse com o Sam em inglês americano ou com o Nii em japonês e seja corrigido no caminho. Entre com a sua conta.</p>
     <form id="fLogin">
       <label>Usuário<input id="lUser" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
       <label>Senha<input id="lPass" type="password" autocomplete="current-password" required></label>
@@ -37,13 +37,19 @@
 <div id="app" class="app" hidden>
   <header>
     <h1>Englishu <svg class="no" viewBox="0 0 24 24" role="img" aria-label="noto"><defs><clipPath id="NOA2"><path d="M-4-4H28V-2.9L-4 28.07Z"/></clipPath><clipPath id="NOB2"><path d="M28-2.9-4 28.07V32H28Z"/></clipPath><g id="NOH2" transform="rotate(180 12 12)"><rect x="2" y="10" width="4" height="11" rx="1.2"/><path d="M8 10 12 3C12.8 1.6 15 2.2 15 4L14.4 9H20C21.2 9 22.1 10.1 21.9 11.3L20.6 19.3C20.4 20.3 19.6 21 18.6 21H8Z"/></g></defs><use href="#NOH2" clip-path="url(#NOA2)" fill="var(--ink)"/><use href="#NOH2" clip-path="url(#NOB2)" fill="var(--red)"/></svg> <b>Andestêndu</b></h1>
-    <div class="chips"><span class="chip" id="topic" hidden></span><span class="chip lv" id="level" hidden></span></div>
+    <div class="chips"><span class="langs" role="group" aria-label="Professor"><button type="button" data-lang="en" aria-pressed="true"><svg viewBox="0 0 30 20" aria-hidden="true"><rect width="30" height="20" fill="#b22234"/><path d="M0 2.3h30M0 5.4h30M0 8.5h30M0 11.5h30M0 14.6h30M0 17.7h30" stroke="#fff" stroke-width="1.54"/><rect width="13" height="10.8" fill="#3c3b6e"/></svg>Sam</button><button type="button" data-lang="ja" aria-pressed="false"><svg viewBox="0 0 30 20" aria-hidden="true"><rect width="30" height="20" fill="#fff"/><circle cx="15" cy="10" r="6" fill="#bc002d"/></svg>Nii</button></span><span class="chip" id="topic" hidden></span><span class="chip lv" id="level" hidden></span></div>
     <button class="me" id="meBtn" aria-expanded="false" aria-controls="set"><span class="av" id="av"></span><span class="sr">Ajustes</span></button>
     <div id="set" class="set">
       <p class="who" id="who"></p>
-      <label>Voz do Sam <select id="voice"><option value="server">Voz do servidor</option><option value="phone">Voz do aparelho</option></select></label>
+      <label><span id="voiceLbl">Voz do Sam</span> <select id="voice"><option value="server">Voz do servidor</option><option value="phone">Voz do aparelho</option></select></label>
       <label>Velocidade <input type="range" id="rate" min="0.7" max="1.3" step="0.05"> <span id="rateV"></span></label>
       <label class="ck"><input type="checkbox" id="auto"> Enviar sozinho ao parar de falar</label>
+      <div id="jaPrefs" class="japrefs" hidden>
+        <label class="ck"><input type="checkbox" id="pFuri"> Mostrar furigana (leitura em cima dos kanji)</label>
+        <label class="ck"><input type="checkbox" id="pRomaji"> Mostrar romaji</label>
+        <label class="ck"><input type="checkbox" id="pPt"> Tradução sempre aberta</label>
+        <label class="ck"><input type="checkbox" id="pKana"> Digitar em romaji e virar かな</label>
+      </div>
       <details id="pwBox" class="pw" hidden><summary>Trocar senha</summary>
         <form id="fPw"><input id="pwOld" type="password" autocomplete="current-password" placeholder="Senha atual" required><input id="pwNew" type="password" autocomplete="new-password" placeholder="Senha nova (mín. 6)" minlength="6" required><input id="pwNew2" type="password" autocomplete="new-password" placeholder="Repita a senha nova" minlength="6" required><button class="ib" type="submit">Salvar senha</button><span id="pwMsg" aria-live="polite"></span></form>
       </details>

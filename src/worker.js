@@ -1,6 +1,14 @@
 // Englishu Noto Andestêndu: site, login com a conta do Gothic e a IA (Workers AI).
 import { checkPassword, hashPassword, checkTotp, randomToken, sha256 } from "./auth.js";
-import { SYSTEM, SCHEMA, buildPrompt, parseReply, unsureWords, aiText, EXPLAIN_SYSTEM, EXPLAIN_SCHEMA, explainPrompt, parseExplain, SIMPLIFY_SYSTEM, SIMPLIFY_SCHEMA, simplifyPrompt, parseSimplify } from "./tutor.js";
+import * as EN from "./tutor.js";
+import * as JA from "./tutor-ja.js";
+import { unsureWords, aiText } from "./tutor.js";
+
+// os dois professores: Sam (inglês americano) e Nii (japonês)
+const TUTORS = {
+  en: { name: "Sam", system: () => EN.SYSTEM, SCHEMA: EN.SCHEMA, buildPrompt: EN.buildPrompt, parseReply: EN.parseReply, EXPLAIN_SYSTEM: EN.EXPLAIN_SYSTEM, EXPLAIN_SCHEMA: EN.EXPLAIN_SCHEMA, explainPrompt: EN.explainPrompt, parseExplain: EN.parseExplain, SIMPLIFY_SYSTEM: EN.SIMPLIFY_SYSTEM, SIMPLIFY_SCHEMA: EN.SIMPLIFY_SCHEMA, simplifyPrompt: EN.simplifyPrompt, parseSimplify: EN.parseSimplify, stt: "en", tts: "en", plain: t => t },
+  ja: { name: "Nii", system: JA.system, SCHEMA: JA.SCHEMA, buildPrompt: JA.buildPrompt, parseReply: JA.parseReply, EXPLAIN_SYSTEM: JA.EXPLAIN_SYSTEM, EXPLAIN_SCHEMA: JA.EXPLAIN_SCHEMA, explainPrompt: JA.explainPrompt, parseExplain: JA.parseExplain, SIMPLIFY_SYSTEM: JA.SIMPLIFY_SYSTEM, SIMPLIFY_SCHEMA: JA.SIMPLIFY_SCHEMA, simplifyPrompt: JA.simplifyPrompt, parseSimplify: JA.parseSimplify, stt: "ja", tts: "jp", plain: JA.plain }
+};
 
 const SESSION_DAYS = 30, MAX_MSGS = 200, MAX_AUDIO = 3 * 1024 * 1024;
 const STT_MODEL = "@cf/openai/whisper-large-v3-turbo", TTS_MODEL = "@cf/myshell-ai/melotts";
@@ -46,6 +54,7 @@ async function ensureTables(env) {
     env.DB.prepare("CREATE TABLE IF NOT EXISTS login_fails (k TEXT PRIMARY KEY, n INTEGER NOT NULL, since INTEGER NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, nick TEXT NOT NULL, pass_hash TEXT NOT NULL, pass_salt TEXT NOT NULL, fail_count INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)")
   ]);
+  try { await env.DB.prepare("ALTER TABLE papo_chats ADD COLUMN lang TEXT NOT NULL DEFAULT 'en'").run(); } catch { /* já existe */ }
   await env.DB.batch(LOCAL_SEED.map(([u, n, salt, hash]) => env.DB.prepare("INSERT OR IGNORE INTO papo_users (id,username,nick,pass_hash,pass_salt,created_at) VALUES (?,?,?,?,?,?)").bind("p_" + u, u, n, hash, salt, Date.now())));
   ready = true;
 }
@@ -128,7 +137,7 @@ async function aiJson(env, system, user, schema, parse, maxTokens = 1400) {
   if (lastErr) throw lastErr;
   return null;
 }
-const askSam = (env, st, opts) => aiJson(env, SYSTEM, buildPrompt(st, opts), SCHEMA, parseReply);
+const askTutor = (env, T, nick, st, opts) => aiJson(env, T.system(nick), T.buildPrompt(st, opts), T.SCHEMA, T.parseReply);
 const b64 = buf => { let s = ""; const a = new Uint8Array(buf); for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode(...a.subarray(i, i + 0x8000)); return btoa(s); };
 
 // ---------- API
@@ -173,6 +182,8 @@ async function api(req, env, path) {
     return json({ ok: true }, 200, { "Set-Cookie": setCookie("", 0) });
   }
   if (!s || s.stage !== "full") return path === "me" ? json({ user: null }) : err("Entre na sua conta.", 401);
+  const lang = (body.lang || new URL(req.url).searchParams.get("lang")) === "ja" ? "ja" : "en", T = TUTORS[lang];
+  const sk = lang === "ja" ? "ja:" + s.id : s.id; // cada idioma tem a sua conversa
   if (path === "password" && method === "POST") {
     if (!s.local) return err("A senha da conta Gothic se troca no Gothic.");
     const nw = String(body.new || "");
@@ -183,11 +194,11 @@ async function api(req, env, path) {
     await env.DB.prepare("DELETE FROM papo_sessions WHERE user_id=? AND token_hash<>?").bind(s.id, s.token_hash).run();
     return json({ ok: true });
   }
-  if (path === "me") return json({ user: meOut(env, s), state: await loadState(env, s.id) });
+  if (path === "me") return json({ user: meOut(env, s), state: await loadState(env, sk), lang });
 
   // --- conversa
   if ((path === "chat" || path === "skip" || path === "theme") && method === "POST") {
-    const st = await loadState(env, s.id); let extra = "", unsure = [];
+    const st = await loadState(env, sk); let extra = "", unsure = [];
     if (path === "theme") {
       const topic = String(body.topic || "").replace(/[\r\n"]+/g, " ").trim().slice(0, 60);
       if (!topic) return err("Escolha um tema.");
@@ -199,43 +210,43 @@ async function api(req, env, path) {
     } else extra = "The learner asked to change the topic. Briefly acknowledge, start a clearly different topic, and return an empty corrections list.";
     if (!(await useQuota(env, s))) return err("Você chegou no limite de falas de hoje. Amanhã tem mais!", 429);
     let r;
-    try { r = await askSam(env, st, { extra, unsure }); }
-    catch (e) { console.error(e); if (quotaErr(e)) return err(QUOTA, 429); return err("O Sam não respondeu. Tente de novo.", 502); }
-    if (!r) return err("O Sam se enrolou na resposta. Tente de novo.", 502);
+    try { r = await askTutor(env, T, s.nick, st, { extra, unsure }); }
+    catch (e) { console.error(e); if (quotaErr(e)) return err(QUOTA, 429); return err(`O ${T.name} não respondeu. Tente de novo.`, 502); }
+    if (!r) return err(`O ${T.name} se enrolou na resposta. Tente de novo.`, 502);
     const last = st.msgs[st.msgs.length - 1];
-    if (last && last.role === "me" && !extra) last.fix = { items: r.corrections, corrected: r.corrected };
+    if (last && last.role === "me" && !extra) last.fix = { items: r.corrections, corrected: r.corrected, ...(r.corrected_romaji ? { corrected_romaji: r.corrected_romaji } : {}) };
     if (r.topic_pt) st.topic = r.topic_pt;
     if (r.level) st.level = r.level;
-    st.msgs.push({ role: "ai", id: "m" + (++st.n), text: r.reply, pt: r.reply_pt });
+    st.msgs.push({ role: "ai", id: "m" + (++st.n), text: r.reply, pt: r.reply_pt, ...(r.romaji ? { romaji: r.romaji } : {}) });
     st.dirty = true;
-    await saveState(env, s.id, st);
+    await saveState(env, sk, st);
     return json({ state: st });
   }
   // --- "explicar de outro jeito" (uma correção) e "não entendi" (uma fala do Sam)
   if ((path === "explain" || path === "simplify") && method === "POST") {
-    const st = await loadState(env, s.id), m = st.msgs.find(x => x.id === body.id);
+    const st = await loadState(env, sk), m = st.msgs.find(x => x.id === body.id);
     if (!m) return err("Mensagem não encontrada.", 404);
     let task;
     if (path === "explain") {
       const c = m.role === "me" && m.fix && m.fix.items[+body.idx];
       if (!c) return err("Correção não encontrada.", 404);
       if (c.more) return json({ state: st });
-      task = async () => { c.more = await aiJson(env, EXPLAIN_SYSTEM, explainPrompt(m.text, c, st.level), EXPLAIN_SCHEMA, parseExplain, 900); return c.more; };
+      task = async () => { c.more = await aiJson(env, T.EXPLAIN_SYSTEM, T.explainPrompt(m.text, c, st.level), T.EXPLAIN_SCHEMA, T.parseExplain, 900); return c.more; };
     } else {
-      if (m.role !== "ai") return err("Só dá para simplificar falas do Sam.");
+      if (m.role !== "ai") return err(`Só dá para simplificar falas do ${T.name}.`);
       if (m.simple) return json({ state: st });
-      task = async () => { m.simple = await aiJson(env, SIMPLIFY_SYSTEM, simplifyPrompt(m.text), SIMPLIFY_SCHEMA, parseSimplify, 700); return m.simple; };
+      task = async () => { m.simple = await aiJson(env, T.SIMPLIFY_SYSTEM, T.simplifyPrompt(m.text), T.SIMPLIFY_SCHEMA, T.parseSimplify, 700); return m.simple; };
     }
     if (!(await useQuota(env, s))) return err("Você chegou no limite de falas de hoje. Amanhã tem mais!", 429);
     try { if (!(await task())) return err("Não consegui explicar agora. Tente de novo.", 502); }
     catch (e) { console.error(e); return err(quotaErr(e) ? QUOTA : "Não consegui explicar agora. Tente de novo.", quotaErr(e) ? 429 : 502); }
     st.dirty = true;
-    await saveState(env, s.id, st);
+    await saveState(env, sk, st);
     return json({ state: st });
   }
   // --- comandos do chat (/new /clear /save /delete) e conversas salvas
   if (path === "cmd" && method === "POST") {
-    const st = await loadState(env, s.id), cmd = String(body.cmd || "");
+    const st = await loadState(env, sk), cmd = String(body.cmd || "");
     const unsaved = st.msgs.length > 0 && (st.dirty || !st.chatId);
     if (cmd === "save") {
       if (!st.msgs.length) return json({ state: st, note: "Não tem nada pra salvar ainda." });
@@ -247,9 +258,9 @@ async function api(req, env, path) {
         const c = await env.DB.prepare("SELECT COUNT(*) AS n FROM papo_chats WHERE user_id=?").bind(s.id).first();
         if (c && c.n >= MAX_SAVED) return json({ state: st, note: `Você já tem ${MAX_SAVED} conversas salvas. Apague alguma (abra e use /delete) antes de salvar outra.` });
         st.chatId = "c" + randomToken(9); st.dirty = false;
-        await env.DB.prepare("INSERT INTO papo_chats (id,user_id,title,data,created_at,updated_at) VALUES (?,?,?,?,?,?)").bind(st.chatId, s.id, title, JSON.stringify({ msgs: st.msgs, topic: st.topic, n: st.n }), now, now).run();
+        await env.DB.prepare("INSERT INTO papo_chats (id,user_id,title,data,created_at,updated_at,lang) VALUES (?,?,?,?,?,?,?)").bind(st.chatId, s.id, title, JSON.stringify({ msgs: st.msgs, topic: st.topic, n: st.n }), now, now, lang).run();
       }
-      await saveState(env, s.id, st);
+      await saveState(env, sk, st);
       return json({ state: st, note: `Conversa salva como "${title}". Ela fica em Ajustes → Conversas salvas.` });
     }
     if (cmd === "new" || cmd === "clear" || cmd === "delete") {
@@ -259,30 +270,30 @@ async function api(req, env, path) {
       let nst;
       if (cmd === "clear") { nst = { ...st, msgs: [], topic: "", n: st.n, dirty: !!st.chatId }; } // a cópia salva só muda se você usar /save de novo
       else nst = fresh(st);
-      await saveState(env, s.id, nst);
+      await saveState(env, sk, nst);
       return json({ state: nst, note: cmd === "new" ? "Conversa nova aberta." : cmd === "clear" ? "Conversa limpa." : "Conversa apagada." });
     }
     return err("Comando desconhecido.");
   }
   if (path === "chats" && method === "GET") {
-    const r = await env.DB.prepare("SELECT id,title,updated_at FROM papo_chats WHERE user_id=? ORDER BY updated_at DESC LIMIT ?").bind(s.id, MAX_SAVED).all();
+    const r = await env.DB.prepare("SELECT id,title,updated_at FROM papo_chats WHERE user_id=? AND lang=? ORDER BY updated_at DESC LIMIT ?").bind(s.id, lang, MAX_SAVED).all();
     return json({ chats: r.results || [] });
   }
   if (path === "open" && method === "POST") {
-    const st = await loadState(env, s.id);
-    const c = await env.DB.prepare("SELECT * FROM papo_chats WHERE id=? AND user_id=?").bind(String(body.id || ""), s.id).first();
+    const st = await loadState(env, sk);
+    const c = await env.DB.prepare("SELECT * FROM papo_chats WHERE id=? AND user_id=? AND lang=?").bind(String(body.id || ""), s.id, lang).first();
     if (!c) return err("Conversa não encontrada.", 404);
     if (st.msgs.length && (st.dirty || !st.chatId) && st.chatId !== c.id && !body.force) return json({ state: st, confirm: "open", note: "A conversa atual não foi salva. Abrir mesmo assim?" });
     let d = {}; try { d = JSON.parse(c.data); } catch {}
     const nst = { ...fresh(st), msgs: d.msgs || [], topic: d.topic || "", n: d.n || 0, chatId: c.id, dirty: false };
-    await saveState(env, s.id, nst);
+    await saveState(env, sk, nst);
     return json({ state: nst, note: `Conversa "${c.title}" aberta.` });
   }
-  if (path === "reset" && method === "POST") { const st = await loadState(env, s.id), nst = blank(); nst.settings = st.settings; nst.level = st.level; await saveState(env, s.id, nst); return json({ state: nst }); }
+  if (path === "reset" && method === "POST") { const st = await loadState(env, sk), nst = blank(); nst.settings = st.settings; nst.level = st.level; await saveState(env, sk, nst); return json({ state: nst }); }
   if (path === "settings" && method === "POST") {
-    const st = await loadState(env, s.id), v = body || {};
+    const st = await loadState(env, sk), v = body || {};
     st.settings = { voice: v.voice === "phone" ? "phone" : "server", rate: Math.min(1.3, Math.max(0.7, +v.rate || 0.95)), auto: v.auto !== false };
-    await saveState(env, s.id, st); return json({ settings: st.settings });
+    await saveState(env, sk, st); return json({ settings: st.settings });
   }
 
   // --- voz: ouvir (Whisper) e falar (MeloTTS)
@@ -290,14 +301,14 @@ async function api(req, env, path) {
     const buf = await req.arrayBuffer();
     if (!buf.byteLength || buf.byteLength > MAX_AUDIO) return err("Áudio vazio ou longo demais (máx. 30 s).");
     try {
-      const r = await env.AI.run(STT_MODEL, { audio: b64(buf), language: "en" });
+      const r = await env.AI.run(STT_MODEL, { audio: b64(buf), language: T.stt });
       return json({ text: String(r && r.text || "").replace(/\s+/g, " ").trim(), unsure: unsureWords(r) });
     } catch (e) { console.error(e); return err(quotaErr(e) ? QUOTA : "Não consegui entender o áudio. Tente de novo.", quotaErr(e) ? 429 : 502); }
   }
   if (path === "tts" && method === "POST") {
-    const text = String(body.text || "").trim().slice(0, 600); if (!text) return err("Sem texto.");
+    const text = T.plain(String(body.text || "")).trim().slice(0, 600); if (!text) return err("Sem texto.");
     try {
-      const r = await env.AI.run(TTS_MODEL, { prompt: text, lang: "en" });
+      const r = await env.AI.run(TTS_MODEL, { prompt: text, lang: T.tts });
       const a = r && r.audio;
       const bytes = typeof a === "string" ? Uint8Array.from(atob(a), c => c.charCodeAt(0)) : a instanceof Uint8Array || a instanceof ArrayBuffer ? a : r instanceof ReadableStream ? r : null;
       if (!bytes) return err("Voz indisponível.", 502);
