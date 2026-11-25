@@ -59,6 +59,7 @@ async function ensureTables(env) {
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_state (user_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_chats (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_usage (user_id TEXT NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (user_id, day))"),
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_neurons (user_id TEXT NOT NULL, day TEXT NOT NULL, task TEXT NOT NULL, neurons REAL NOT NULL, calls INTEGER NOT NULL, PRIMARY KEY (user_id, day, task))"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS login_fails (k TEXT PRIMARY KEY, n INTEGER NOT NULL, since INTEGER NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, nick TEXT NOT NULL, pass_hash TEXT NOT NULL, pass_salt TEXT NOT NULL, fail_count INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)")
   ]);
@@ -133,6 +134,25 @@ const quotaErr = e => /4006|daily free allocation|neurons|quota|rate limit/i.tes
 // pede JSON à IA. Tenta os modelos em ordem; para cada um, guarda qual jeito de pedir funcionou (evita repetir erros).
 // gpt-oss é um modelo que "pensa" antes de responder: pedimos pouco raciocínio onde a pessoa está esperando.
 const modeOk = new Map();
+// ---------- medidor de cota (estimativa): neurons por milhão de tokens [entrada, saída], tabela de preços da Cloudflare
+const RATES = {
+  "@cf/openai/gpt-oss-120b": [31818, 68182], "@cf/openai/gpt-oss-20b": [18182, 27273],
+  "@cf/meta/llama-3.3-70b-instruct-fp8-fast": [26668, 204805], "@cf/meta/llama-4-scout-17b-16e-instruct": [24545, 77273]
+};
+const STT_PER_MIN = 46.63, TTS_PER_1K_CHARS = 2727.27, FREE_NEURONS = 10000;
+const utcDay = () => new Date().toISOString().slice(0, 10); // a cota da Cloudflare vira às 00:00 UTC (21h em Brasília)
+function llmNeurons(model, r, inChars, outText) {
+  const u = (r && r.usage) || {};
+  const tin = u.prompt_tokens ?? u.input_tokens ?? Math.ceil(inChars / 3.5);
+  const tout = u.completion_tokens ?? u.output_tokens ?? Math.ceil(String(outText || "").length / 3.5) + (/gpt-oss/.test(model) ? 150 : 0);
+  const [a, b] = RATES[model] || [30000, 70000];
+  return (tin * a + tout * b) / 1e6;
+}
+async function meter(env, uid, task, neurons) {
+  if (!uid || !(neurons > 0)) return;
+  try { await env.DB.prepare("INSERT INTO papo_neurons (user_id,day,task,neurons,calls) VALUES (?,?,?,?,1) ON CONFLICT(user_id,day,task) DO UPDATE SET neurons=neurons+excluded.neurons, calls=calls+1").bind(uid, utcDay(), task, neurons).run(); }
+  catch (e) { console.error("meter", e); }
+}
 const stats = []; // últimos tempos (para /api/admin/speed)
 function modesFor(model, effort) {
   const m = [];
@@ -155,7 +175,8 @@ async function aiJson(env, system, user, schema, parse, maxTokens = 1400, opt = 
       const t0 = Date.now();
       try {
         const r = await env.AI.run(model, inputFor(mode, system, user, schema, maxTokens, effort));
-        const out = parse(aiText(r));
+        const txt = aiText(r), out = parse(txt);
+        await meter(env, opt.uid, opt.task || "outro", llmNeurons(model, r, system.length + user.length, typeof txt === "string" ? txt : JSON.stringify(txt)));
         stats.push({ task: opt.task || "?", model, mode, effort, ms: Date.now() - t0, ok: !!out }); if (stats.length > 40) stats.shift();
         if (out) { modeOk.set(model + "|" + effort, mode); return out; }
       } catch (e) {
@@ -175,10 +196,10 @@ function tutorParts(T, nick) {
   return partsCache.get(key);
 }
 const replyModels = env => (env.REPLY_MODEL ? [env.REPLY_MODEL] : []);
-const askReply = (env, T, nick, st, opts) => aiJson(env, tutorParts(T, nick).reply, T.buildPrompt(st, opts), REPLY_SCHEMA, parseReplyOnly(T.parseReply), 700, { models: replyModels(env), effort: "low", task: "reply" });
-const askCheck = (env, T, nick, st, unsure) => aiJson(env, tutorParts(T, nick).check, checkPrompt(st, T.name, unsure, T.plain), CHECK_SCHEMA, parseCheck(T.parseReply), 1200, { effort: env.CHECK_EFFORT || "low", task: "check" });
+const askReply = (env, T, nick, st, opts, uid) => aiJson(env, tutorParts(T, nick).reply, T.buildPrompt(st, opts), REPLY_SCHEMA, parseReplyOnly(T.parseReply), 700, { models: replyModels(env), effort: "low", task: "resposta", uid });
+const askCheck = (env, T, nick, st, unsure, uid) => aiJson(env, tutorParts(T, nick).check, checkPrompt(st, T.name, unsure, T.plain), CHECK_SCHEMA, parseCheck(T.parseReply), 1200, { effort: env.CHECK_EFFORT || "low", task: "correção", uid });
 // sugestões: modelo menor e mais barato (SUG_MODEL), só quando a pessoa pede
-const askSug = (env, T, nick, st, aiMsg) => aiJson(env, tutorParts(T, nick).sug, sugPrompt(st, aiMsg, T.plain), SUG_SCHEMA, parseSug, 900, { models: env.SUG_MODEL ? [env.SUG_MODEL] : replyModels(env), effort: "low", task: "sug" });
+const askSug = (env, T, nick, st, aiMsg, uid) => aiJson(env, tutorParts(T, nick).sug, sugPrompt(st, aiMsg, T.plain), SUG_SCHEMA, parseSug, 900, { models: env.SUG_MODEL ? [env.SUG_MODEL] : replyModels(env), effort: "low", task: "sugestões", uid });
 // voz do servidor: Deepgram Aura-2 (só inglês; o MeloTTS foi desativado pela Cloudflare em 20/11/2026).
 // Japonês não tem voz no servidor: o app usa a voz japonesa do aparelho.
 async function toBytes(r) {
@@ -273,7 +294,7 @@ async function api(req, env, path, ctx) {
     if (path === "chat" && !st.msgs.length) {
       const o = opener(lang, s.nick);
       st.topic = o.topic_pt;
-      st.msgs.push({ role: "ai", id: "m" + (++st.n), text: o.reply, pt: o.reply_pt, ...(o.romaji ? { romaji: o.romaji } : {}), sug: o.suggestions });
+      st.msgs.push({ role: "ai", id: "m" + (++st.n), text: o.reply, pt: o.reply_pt, ...(o.romaji ? { romaji: o.romaji } : {}), ...(o.suggestions.length ? { sug: o.suggestions } : {}) });
       st.dirty = true; await saveState(env, sk, st);
       return json({ state: st });
     }
@@ -281,9 +302,9 @@ async function api(req, env, path, ctx) {
     const last = st.msgs[st.msgs.length - 1];
     const learner = last && last.role === "me" && !extra ? last : null;
     // correções começam junto com a resposta (em paralelo); a pessoa só espera a resposta
-    const checkP = learner ? askCheck(env, T, s.nick, st, unsure).catch(e => { console.error(e); return null; }) : null;
+    const checkP = learner ? askCheck(env, T, s.nick, st, unsure, s.id).catch(e => { console.error(e); return null; }) : null;
     let r;
-    try { r = await askReply(env, T, s.nick, st, { extra, unsure }); }
+    try { r = await askReply(env, T, s.nick, st, { extra, unsure }, s.id); }
     catch (e) { console.error(e); if (quotaErr(e)) return err(QUOTA, 429); return err(`O ${T.name} não respondeu. Tente de novo.`, 502); }
     if (!r) return err(`O ${T.name} se enrolou na resposta. Tente de novo.`, 502);
     if (r.topic_pt) st.topic = r.topic_pt;
@@ -306,13 +327,14 @@ async function api(req, env, path, ctx) {
   }
   // --- "explicar de outro jeito" (uma correção) e "não entendi" (uma fala do Sam)
   // --- sugestões de resposta (só quando a pessoa toca no botão, para economizar a cota)
+  if ((path === "sug" || path === "moresug") && lang !== "ja") return err("Sugestões de resposta só no japonês.");
   if (path === "sug" && method === "POST") {
     const st = await loadState(env, sk), m = st.msgs.find(x => x.id === body.id);
     if (!m || m.role !== "ai") return err("Mensagem não encontrada.", 404);
     if (m.sug && m.sug.length) return json({ state: st });
     if (!(await useQuota(env, s))) return err("Você chegou no limite de falas de hoje. Amanhã tem mais!", 429);
     let sug;
-    try { sug = await askSug(env, T, s.nick, st, m); }
+    try { sug = await askSug(env, T, s.nick, st, m, s.id); }
     catch (e) { console.error(e); return err(quotaErr(e) ? QUOTA : "Não consegui criar sugestões agora. Tente de novo.", quotaErr(e) ? 429 : 502); }
     if (!sug) return err("Não consegui criar sugestões agora. Tente de novo.", 502);
     m.sug = sug; st.dirty = true; await saveState(env, sk, st);
@@ -324,7 +346,7 @@ async function api(req, env, path, ctx) {
     if (!m || m.role !== "ai") return err("Mensagem não encontrada.", 404);
     if (!(await useQuota(env, s))) return err("Você chegou no limite de falas de hoje. Amanhã tem mais!", 429);
     let more;
-    try { more = await aiJson(env, T.MORE_SUG_SYSTEM, T.moreSugPrompt(st, m), T.MORE_SUG_SCHEMA, T.parseMoreSug, 1200); }
+    try { more = await aiJson(env, T.MORE_SUG_SYSTEM, T.moreSugPrompt(st, m), T.MORE_SUG_SCHEMA, T.parseMoreSug, 1200, { models: env.SUG_MODEL ? [env.SUG_MODEL] : [], task: "sugestões", uid: s.id }); }
     catch (e) { console.error(e); return err(quotaErr(e) ? QUOTA : "Não consegui criar sugestões agora. Tente de novo.", quotaErr(e) ? 429 : 502); }
     if (!more) return err("Não consegui criar sugestões agora. Tente de novo.", 502);
     m.sugOld = [...(m.sugOld || []), ...(m.sug || [])].slice(-15); m.sug = more; st.dirty = true;
@@ -339,11 +361,11 @@ async function api(req, env, path, ctx) {
       const c = m.role === "me" && m.fix && m.fix.items[+body.idx];
       if (!c) return err("Correção não encontrada.", 404);
       if (c.more) return json({ state: st });
-      task = async () => { c.more = await aiJson(env, T.EXPLAIN_SYSTEM, T.explainPrompt(m.text, c, st.level), T.EXPLAIN_SCHEMA, T.parseExplain, 900); return c.more; };
+      task = async () => { c.more = await aiJson(env, T.EXPLAIN_SYSTEM, T.explainPrompt(m.text, c, st.level), T.EXPLAIN_SCHEMA, T.parseExplain, 900, { task: "explicações", uid: s.id }); return c.more; };
     } else {
       if (m.role !== "ai") return err(`Só dá para simplificar falas do ${T.name}.`);
       if (m.simple) return json({ state: st });
-      task = async () => { m.simple = await aiJson(env, T.SIMPLIFY_SYSTEM, T.simplifyPrompt(m.text), T.SIMPLIFY_SCHEMA, T.parseSimplify, 700); return m.simple; };
+      task = async () => { m.simple = await aiJson(env, T.SIMPLIFY_SYSTEM, T.simplifyPrompt(m.text), T.SIMPLIFY_SCHEMA, T.parseSimplify, 700, { task: "explicações", uid: s.id }); return m.simple; };
     }
     if (!(await useQuota(env, s))) return err("Você chegou no limite de falas de hoje. Amanhã tem mais!", 429);
     try { if (!(await task())) return err("Não consegui explicar agora. Tente de novo.", 502); }
@@ -410,6 +432,7 @@ async function api(req, env, path, ctx) {
     if (!buf.byteLength || buf.byteLength > MAX_AUDIO) return err("Áudio vazio ou longo demais (máx. 30 s).");
     try {
       const r = await env.AI.run(STT_MODEL, { audio: b64(buf), language: T.stt });
+      await meter(env, s.id, "microfone", Math.max(0, buf.byteLength - 44) / 32000 / 60 * STT_PER_MIN);
       return json({ text: String(r && r.text || "").replace(/\s+/g, " ").trim(), unsure: unsureWords(r) });
     } catch (e) { console.error(e); return err(quotaErr(e) ? QUOTA : "Não consegui entender o áudio. Tente de novo.", quotaErr(e) ? 429 : 502); }
   }
@@ -419,6 +442,7 @@ async function api(req, env, path, ctx) {
       if (!VOICES[lang]) return err("Sem voz do servidor para este idioma.", 501);
       if (!(await useQuota(env, s))) return err("Você chegou no limite de hoje. Use a voz do aparelho (Ajustes).", 429);
       const { bytes } = await serverVoice(env, text, lang);
+      if (bytes) await meter(env, s.id, "voz do servidor", text.length / 1000 * TTS_PER_1K_CHARS);
       if (!bytes) return err("Voz indisponível.", 502);
       return new Response(bytes, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "private, max-age=86400" } });
     } catch (e) { console.error(e); return err(quotaErr(e) ? QUOTA : "Voz indisponível.", quotaErr(e) ? 429 : 502); }
@@ -436,6 +460,19 @@ async function api(req, env, path, ctx) {
       headers: { "Content-Type": "application/json; charset=utf-8", "Content-Disposition": `attachment; filename="englishu-conversas-${day}.json"`, "Cache-Control": "no-store" }
     });
   }
+  // painel de uso da cota (só o dono): /painel.html lê isto
+  if (path === "admin/usage" && method === "GET") {
+    if (!isOwner(env, s)) return err("Só o dono.", 403);
+    const days = Math.min(14, Math.max(1, parseInt(new URL(req.url).searchParams.get("days") || "7", 10) || 7));
+    const since = new Date(Date.now() - (days - 1) * 864e5).toISOString().slice(0, 10);
+    const rows = (await env.DB.prepare("SELECT user_id, day, task, neurons, calls FROM papo_neurons WHERE day>=? ORDER BY day").bind(since).all()).results || [];
+    const ids = [...new Set(rows.map(r => r.user_id))], names = {};
+    for (const id of ids) {
+      const u = await env.DB.prepare(`SELECT username, nick FROM ${id.startsWith("p_") ? "papo_users" : "users"} WHERE id=?`).bind(id).first();
+      names[id] = u ? { username: u.username, nick: u.nick, owner: id === s.id } : { username: "?", nick: "(conta removida)" };
+    }
+    return json({ today: utcDay(), free: FREE_NEURONS, since, rows, names, limit: parseInt(env.DAILY_LIMIT || "40", 10) || 40 });
+  }
   // velocidade dos modelos (só o dono): /api/admin/speed?lang=en mede cada candidato com a mesma conversa de teste
   if (path === "admin/speed" && method === "GET") {
     if (!isOwner(env, s)) return err("Só o dono.", 403);
@@ -444,7 +481,7 @@ async function api(req, env, path, ctx) {
     const out = [];
     for (const model of cand) {
       const t0 = Date.now(); let ok = false, sample = "", error = "";
-      try { const r = await aiJson(env, tutorParts(T, s.nick).reply, T.buildPrompt(test, {}), REPLY_SCHEMA, parseReplyOnly(T.parseReply), 700, { only: model, effort: "low", task: "speed" }); ok = !!r; sample = r ? r.reply : ""; }
+      try { const r = await aiJson(env, tutorParts(T, s.nick).reply, T.buildPrompt(test, {}), REPLY_SCHEMA, parseReplyOnly(T.parseReply), 700, { only: model, effort: "low", task: "teste de velocidade", uid: s.id }); ok = !!r; sample = r ? r.reply : ""; }
       catch (e) { error = String(e && e.message || e).slice(0, 160); }
       out.push({ model, ms: Date.now() - t0, ok, sample, error });
     }

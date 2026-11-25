@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Painel de uso da cota</title>
+<link rel="icon" href="/icone-v2.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+/* Painel do dono: quanto da cota diária grátis da Cloudflare (10.000 neurons) cada pessoa gastou */
+:root{color-scheme:light dark;--bg:light-dark(#fff,#0f1217);--ink:light-dark(#15171c,#eef0f4);--mute:light-dark(#5d6370,#9aa1ad);--line:light-dark(#e4e6eb,#262b34);--soft:light-dark(#f4f5f8,#171b22);--red:#d7263d;--blue:#2154d6;--ok:light-dark(#0b7a43,#4ad08a);--warn:light-dark(#b26a00,#ffb547)}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 Figtree,system-ui,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding:20px max(4vw,14px) 48px;display:flex;flex-direction:column;gap:22px}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+h1{font-size:24px;margin:0;font-weight:800}h1 b{color:var(--red)}
+h2{font-size:18px;margin:0 0 10px}
+a,button.ib{font:600 14px Figtree,sans-serif;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:none;color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;text-decoration:none}
+.hero{background:var(--soft);border-radius:18px;padding:18px;display:grid;gap:10px}
+.big{font-size:clamp(40px,10vw,64px);font-weight:800;line-height:1}
+.big small{font-size:18px;color:var(--mute);font-weight:600;margin-left:8px}
+.bar{height:14px;border-radius:99px;background:var(--line);overflow:hidden;display:flex}
+.bar i{display:block;height:100%}
+.sub{color:var(--mute);font-size:14px}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th{text-align:left;font-size:13px;color:var(--mute);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.who b{display:block}.who span{font-size:13px;color:var(--mute)}
+.mini{height:8px;border-radius:99px;background:var(--line);overflow:hidden;min-width:80px}.mini i{display:block;height:100%;background:var(--red)}
+.tasks{font-size:13px;color:var(--mute)}
+.days{display:grid;gap:8px}
+.day{display:grid;grid-template-columns:90px 1fr 64px;gap:10px;align-items:center;font-size:14px}
+.day .mini{height:12px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--mute)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.msg{padding:14px;border-radius:12px;background:var(--soft)}
+section{margin-top:26px}section.hero{margin-top:0}
+@media(max-width:600px){.hide-s{display:none}td,th{padding:8px 4px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>Painel de uso <b>da cota</b></h1><div><button class="ib" id="reload">Atualizar</button> <a href="/">Voltar ao app</a></div></header>
+  <div id="out" class="msg">Carregando…</div>
+</div>
+<script>
+{
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const COLORS = ["#d7263d", "#2154d6", "#0b9f6e", "#e09b00", "#8a4fff", "#e0567a", "#0096b4", "#6b7a00", "#b45309", "#64748b"];
+const fmt = n => Math.round(n).toLocaleString("pt-BR");
+const pct = (n, f) => (n / f * 100);
+const pctTxt = p => (p < 1 && p > 0 ? p.toFixed(1) : Math.round(p)) + "%";
+function untilReset() {
+  const now = new Date(), next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  const m = Math.round((next - now) / 60000); return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
+}
+async function load() {
+  const out = $("#out");
+  try {
+    const r = await fetch("/api/admin/usage?days=7", { credentials: "same-origin" });
+    if (r.status === 401) { out.innerHTML = 'Entre no app com a sua conta primeiro. <a href="/">Ir para o app</a>'; return; }
+    if (r.status === 403) { out.textContent = "Este painel é só do dono do app."; return; }
+    const d = await r.json(); render(d);
+  } catch { out.textContent = "Não consegui carregar agora. Tente de novo."; }
+}
+function render(d) {
+  const { rows, names, free, today } = d;
+  const todayRows = rows.filter(r => r.day === today);
+  const byUser = new Map();
+  for (const r of todayRows) { const u = byUser.get(r.user_id) || { id: r.user_id, neurons: 0, calls: 0, tasks: {} }; u.neurons += r.neurons; u.calls += r.calls; u.tasks[r.task] = (u.tasks[r.task] || 0) + r.neurons; byUser.set(r.user_id, u); }
+  const users = [...byUser.values()].sort((a, b) => b.neurons - a.neurons);
+  const total = users.reduce((a, u) => a + u.neurons, 0), totalPct = pct(total, free);
+  const color = new Map(users.map((u, i) => [u.id, COLORS[i % COLORS.length]]));
+  const name = id => names[id] || { nick: "?", username: "?" };
+  const byTask = {}; for (const r of todayRows) byTask[r.task] = (byTask[r.task] || 0) + r.neurons;
+  const daysMap = {}; for (const r of rows) daysMap[r.day] = (daysMap[r.day] || 0) + r.neurons;
+  const days = Object.keys(daysMap).sort().reverse();
+  $("#out").className = "";
+  $("#out").innerHTML = `
+  <section class="hero">
+    <span class="sub">Cota grátis de hoje (dia ${esc(today.split("-").reverse().join("/"))} em UTC · renova em ${untilReset()}, às 21h de Brasília)</span>
+    <div class="big" style="color:${totalPct >= 90 ? "var(--red)" : totalPct >= 60 ? "var(--warn)" : "var(--ok)"}">${pctTxt(totalPct)}<small>${fmt(total)} de ${fmt(free)} neurons</small></div>
+    <div class="bar" role="img" aria-label="Uso por pessoa">${users.map(u => `<i style="width:${Math.min(100, pct(u.neurons, free))}%;background:${color.get(u.id)}" title="${esc(name(u.id).nick)}"></i>`).join("")}</div>
+    <div class="legend">${users.map(u => `<span><i style="background:${color.get(u.id)}"></i>${esc(name(u.id).nick)}</span>`).join("") || "Ninguém usou a IA hoje ainda."}</div>
+  </section>
+  <section>
+    <h2>Por pessoa (hoje)</h2>
+    ${users.length ? `<table><thead><tr><th>Pessoa</th><th class="n">% da cota</th><th class="hide-s"></th><th class="n hide-s">Neurons</th><th class="n">Pedidos</th></tr></thead><tbody>
+    ${users.map(u => { const n = name(u.id), p = pct(u.neurons, free), top = Object.entries(u.tasks).sort((a, b) => b[1] - a[1]).map(([t, v]) => `${esc(t)} ${pctTxt(pct(v, free))}`).join(" · ");
+      return `<tr><td class="who"><b>${esc(n.nick)}${n.owner ? " (você)" : ""}</b><span>@${esc(n.username)}</span><div class="tasks">${top}</div></td><td class="n"><b>${pctTxt(p)}</b></td><td class="hide-s"><div class="mini"><i style="width:${Math.min(100, p)}%;background:${color.get(u.id)}"></i></div></td><td class="n hide-s">${fmt(u.neurons)}</td><td class="n">${u.calls}</td></tr>`; }).join("")}
+    </tbody></table>` : `<p class="sub">Sem uso hoje.</p>`}
+  </section>
+  <section>
+    <h2>Por tipo de pedido (hoje)</h2>
+    <div class="days">${Object.entries(byTask).sort((a, b) => b[1] - a[1]).map(([t, v]) => `<div class="day"><span>${esc(t)}</span><div class="mini"><i style="width:${Math.min(100, pct(v, free))}%"></i></div><span class="n">${pctTxt(pct(v, free))}</span></div>`).join("") || '<p class="sub">Sem uso hoje.</p>'}</div>
+  </section>
+  <section>
+    <h2>Últimos 7 dias</h2>
+    <div class="days">${days.map(day => `<div class="day"><span>${esc(day.split("-").reverse().slice(0, 2).join("/"))}</span><div class="mini"><i style="width:${Math.min(100, pct(daysMap[day], free))}%;background:${pct(daysMap[day], free) >= 100 ? "var(--red)" : "var(--blue)"}"></i></div><span class="n">${pctTxt(pct(daysMap[day], free))}</span></div>`).join("") || '<p class="sub">Ainda sem histórico.</p>'}</div>
+  </section>
+  <p class="sub">Os números são uma estimativa do app, calculada pelo tamanho de cada pedido e pela tabela de preços da Cloudflare. O valor oficial está no painel da Cloudflare (Workers AI). A medição começou hoje: o uso de antes não aparece. Os dias seguem o relógio da Cloudflare (UTC), que vira às 21h de Brasília.</p>`;
+}
+$("#reload").addEventListener("click", load);
+load(); setInterval(load, 30000);
+}
+</script>
+</body>
+</html>

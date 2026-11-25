@@ -27,6 +27,6 @@ export function opener(lang, nick = "") {
   const o = pick(lang === "ja" ? JA(n) : lang === "es" ? ES : EN);
   return {
     reply: o.reply, reply_pt: o.pt, ...(o.romaji ? { romaji: o.romaji } : {}), topic_pt: o.topic,
-    suggestions: o.sug.map(x => x.length === 3 ? { text: x[0], romaji: x[1], pt: x[2] } : { text: x[0], pt: x[1] })
+    suggestions: lang === "ja" ? o.sug.map(x => ({ text: x[0], romaji: x[1], pt: x[2] })) : [] // sugestões só no japonês
   };
 }

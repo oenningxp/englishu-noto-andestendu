@@ -96,7 +96,8 @@ assert.equal((await call("cmd", { cmd: "xyz" })).status, 400);
 // Nii (japonês): conversa separada da do Sam
 cookie = ""; await call("login", { username: "isabella", password: "123456" });
 const enMe = await call("chat", {}); const enFirst = enMe.data.state.msgs[0].text;
-assert.equal(enMe.data.state.msgs[0].sug.length, 4, "primeira fala pronta já vem com 4 sugestões");
+assert.equal(enMe.data.state.msgs[0].sug, undefined, "sugestões só no japonês");
+assert.equal((await call("sug", { id: enMe.data.state.msgs[0].id })).status, 400);
 const ja = await call("chat", { lang: "ja" });
 assert.equal(ja.data.state.msgs.length, 1); assert.match(ja.data.state.msgs[0].romaji, /Konnichiwa/); assert.match(ja.data.state.msgs[0].text, /ニイ/);
 const r1 = await worker.fetch(new Request("https://papo.test/api/me?lang=ja", { headers: { Cookie: cookie } }), env);
@@ -128,6 +129,9 @@ await call("login/totp", { code: await totpAt(secret, Math.floor(Date.now() / 30
 const ex2 = await call("admin/export"); const exp = ex2.data;
 assert.equal(ex2.status, 200); assert.equal(exp.total_conversas, 1); assert.equal(exp.conversas[0].pessoa, "aluno-1"); assert.equal(exp.conversas[0].idioma, "ja");
 assert.ok(!JSON.stringify(exp).includes("isabella"), "sem nomes de usuário");
+const us = (await call("admin/usage")).data;
+assert.ok(us.rows.some(r => r.task === "resposta" && r.neurons > 0), "medidor anotou as respostas");
+assert.ok(Object.values(us.names).some(n => n.username === "isabella"), "painel mostra quem gastou");
 
 // contas só do Englishu (sem 2FA)
 cookie = "";

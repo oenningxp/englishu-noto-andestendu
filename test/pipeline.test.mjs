@@ -17,5 +17,5 @@ assert.equal(c.items.length, 1); assert.equal(c.corrected_romaji, "watashi wa");
 assert.equal(parseCheck(parseReply)({ reply: "sem correções" }), null);
 assert.equal(parseSug({ suggestions: [{ text: "Yes!", pt: "Sim!" }] })[0].text, "Yes!");
 assert.match(checkPrompt({ msgs: [{ role: "ai", text: "私{わたし}" }, { role: "me", text: "hai" }] }, "Nii", [], t => t.replace(/\{[^}]*\}/g, "")), /NII: 私\nLEARNER \(typed\): hai/);
-for (const l of ["en", "ja", "es"]) { const o = opener(l, "Everaldo"); assert.ok(o.reply && o.reply_pt && o.suggestions.length === 4, l); if (l === "ja") assert.ok(o.romaji && o.suggestions[0].romaji); }
+for (const l of ["en", "ja", "es"]) { const o = opener(l, "Everaldo"); assert.ok(o.reply && o.reply_pt && o.suggestions.length === (l === "ja" ? 4 : 0), l); if (l === "ja") assert.ok(o.romaji && o.suggestions[0].romaji); }
 console.log("pipeline ok");

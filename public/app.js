@@ -46,7 +46,7 @@ function showApp(d) {
   $("#av").innerHTML = me.avatar ? `<img alt="" src="/img/${encodeURIComponent(me.avatar)}">` : esc((me.nick || "?").slice(0, 1).toUpperCase());
   $("#who").textContent = `Conectado como ${me.nick} (${me.username})`;
   $("#pwBox").hidden = !me.local;
-  $("#exportBtn").hidden = !me.owner;
+  $("#exportBtn").hidden = !me.owner; $("#panelBtn").hidden = !me.owner;
   applyLang(); watchPending();
 }
 // nome do site muda com o professor
@@ -65,7 +65,7 @@ function applyLang() {
   document.querySelectorAll("[data-lang]").forEach(b => b.setAttribute("aria-pressed", b.dataset.lang === lang));
   inp.placeholder = lang === "ja" ? (P.kanaInput ? "Fale, ou digite em romaji…" : "Fale ou digite em japonês…") : lang === "es" ? "Fale ou digite em espanhol…" : "Fale ou digite em inglês…";
   $("#voiceLbl").textContent = "Voz do " + NAME();
-  $("#pSug").checked = sugOn();
+  $("#pSug").checked = sugOn(); $("#pSug").closest("label").hidden = lang !== "ja";
   $("#jaPrefs").hidden = lang !== "ja";
   $("#pFuri").checked = P.furi; $("#pRomaji").checked = P.romaji; $("#pPt").checked = P.ptAlways; $("#pKana").checked = P.kanaInput;
   $("#voice").value = S.settings.voice; $("#rate").value = S.settings.rate; $("#rateV").textContent = S.settings.rate + "x"; $("#auto").checked = S.settings.auto;
@@ -117,7 +117,7 @@ function render() {
 
 const showPtOf = m => m.showPt ?? (lang === "ja" && P.ptAlways);
 // sugestões de resposta (só na última fala do professor)
-const sugOn = () => store.get("sug_" + lang, true);
+const sugOn = () => lang === "ja" && store.get("sug_" + lang, true); // sugestões só no japonês (Nii)
 function sugHtml(m) {
   if (!sugOn()) return "";
   if (!m.sug || !m.sug.length) return `<div class="sugs"><button class="ib sugask" data-sugask="${m.id}">${waiting === "ask" + m.id ? "Criando sugestões…" : "Mostrar sugestões de resposta"}</button></div>`;
