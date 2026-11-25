@@ -51,7 +51,7 @@ function showApp(d) {
 }
 // nome do site muda com o professor
 function applyTitle() {
-  const [a, b] = ({ ja: ["Japanese", "Understand"], es: ["Español", "Entiendo"] })[lang] || ["Englishu", "Andestêndu"];
+  const [a, b] = ({ ja: ["Japanese", "Understand"], es: ["Espanhol", "Compreendo"] })[lang] || ["Englishu", "Andestêndu"];
   document.querySelectorAll(".t1").forEach(e => e.textContent = a);
   document.querySelectorAll(".t2").forEach(e => e.textContent = b);
   document.title = `${a} 👎 ${b}`;
