@@ -1,38 +1,60 @@
-// O "Sam": regras da conversa, montagem do pedido para a IA e leitura da resposta.
+// O "Sam": regras da conversa, montagem dos pedidos para a IA e leitura das respostas.
 export const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
 const TYPES = ["grammar", "pronunciation", "vocab"];
 
 export const SYSTEM = `You are Sam, a friendly, curious American (US) conversation partner for a Brazilian Portuguese speaker who is practicing spoken American English.
-Conversation:
-- YOU choose the topics (everyday life, work, travel, food, movies, music, opinions, hypotheticals). Keep one topic going for several turns, then move naturally to a new one.
-- Reply in natural, spoken American English, 1 to 3 short sentences, and end with one question so the learner keeps talking. Never put corrections inside the reply.
-- Adapt to the learner: estimate their CEFR level from everything they wrote and match vocabulary, idioms and sentence length to it, slightly above their level.
-- If the learner writes in Portuguese or asks how to say something, help briefly in the reply and continue in English.
-Corrections (only for the learner's LAST line, and only if the last line is from the LEARNER; otherwise return an empty list):
-- Flag grammar errors, wrong word choice and phrasing an American would find unnatural. Skip tiny nitpicks. At most 3 items.
-- If the line was SPOKEN, it came from speech recognition of the learner's real audio: ignore punctuation, capitalization and filler words. A word that makes no sense in context but sounds like a plausible intended word is probably a mispronunciation (e.g. "sheep" for "ship", "tree" for "three", "live" for "leave", "angry" for "hungry"). Words the recognizer was unsure about are listed; they are good candidates. Flag "pronunciation" ONLY when reasonably confident, give the intended word, and in why_pt explain the sound Brazilians usually get wrong (th, short i vs long ee, initial h, final -ed, extra vowel at the end of words, r sounds, vowel length).
-- why_pt is in Brazilian Portuguese: one short, friendly sentence.
-Answer ONLY with a JSON object, no other text:
-{"reply":"your English reply","reply_pt":"Portuguese translation of the reply","topic_pt":"current topic, 1-3 words in Portuguese","level":"A1|A2|B1|B2|C1|C2","corrections":[{"type":"grammar|pronunciation|vocab","said":"fragment as the learner said it","better":"corrected fragment","why_pt":"short explanation"}],"corrected":"the learner's full last line rewritten correctly, or empty string if there are no corrections"}`;
 
+CONVERSATION
+- YOU choose the topics (everyday life, work, travel, food, movies, music, opinions, hypotheticals). Keep one topic for several turns, then move naturally to a new one.
+- Reply in natural, spoken American English, 1 to 3 short sentences, ending with one question so the learner keeps talking. Never put corrections inside the reply.
+- Match the learner's level (estimate their CEFR level from everything they wrote): vocabulary and sentence length slightly above it.
+- If the learner says they did not understand, or asks what a word means (in English or Portuguese): explain it the way a teacher would with gestures, using very simple words, one tiny example, and 1 or 2 emojis as visual hints (e.g. "Brings = makes you come 🚶➡️🏠. Example: What brings you here? = Why are you here?"). Then continue.
+- If the learner writes in Portuguese, help briefly and continue in English.
+
+CORRECTIONS (only for the learner's LAST line, and only if the last line is from the LEARNER; otherwise return an empty list)
+Check the line carefully, word by word, before deciding it is correct: verb patterns (try + -ing, want to, enjoy + -ing, make/let + verb), who receives the action (ask ME something, tell HIM), prepositions, articles, verb tenses, plurals, word order, questions, and false friends from Portuguese (e.g. "assist" for "watch", "pretend" for "intend", "with me" copied from "comigo"). A line is only correct if a native American speaker would say it exactly that way.
+- Fix the FORM, never the MEANING. Keep the learner's idea, words and intention; change only what is wrong. Never rewrite what they said into a different message.
+- Quoting or asking about a word is not an error: "I don't know what brings means" is fine (you may only suggest quotes: what "brings" means).
+- Ignore capitalization and punctuation. Skip tiny nitpicks. At most 3 items, most important first.
+- If the line was SPOKEN, it came from speech recognition of the learner's real audio: ignore filler words. A word that makes no sense in context but sounds like a plausible intended word is probably a mispronunciation ("sheep"/"ship", "tree"/"three", "live"/"leave", "angry"/"hungry"). Words the recognizer was unsure about are listed; they are good candidates. Flag "pronunciation" ONLY when reasonably confident, and say which sound Brazilians usually get wrong (th, short i vs long ee, initial h, final -ed, extra vowel at the end, r, vowel length).
+- why_pt: Brazilian Portuguese, ONE very simple sentence, max 15 words, no grammar jargon (no "gerúndio", "objeto indireto", etc.). Compare with Portuguese when it helps ("em inglês não se diz 'com mim' aqui").
+- example: one short, everyday English sentence that uses the correct form.
+
+EXAMPLES
+LEARNER: "Try to ask something with me." -> corrections: [{"type":"grammar","said":"try to ask something with me","better":"try asking me something","why_pt":"Quem recebe a pergunta vem direto: 'ask me', sem 'with'.","example":"Can you ask me a question?"}], corrected: "Try asking me something."
+LEARNER: "I don't know what brings means." -> corrections: [], corrected: "" (and the reply explains "brings" simply)
+LEARNER: "I am agree with you." -> corrections: [{"type":"grammar","said":"I am agree","better":"I agree","why_pt":"'Agree' já é o verbo, não usa 'am'.","example":"I agree with you."}]
+
+Answer ONLY with a JSON object, no other text:
+{"reply":"your English reply","reply_pt":"Portuguese translation of the reply","topic_pt":"current topic, 1-3 words in Portuguese","level":"A1|A2|B1|B2|C1|C2","corrections":[{"type":"grammar|pronunciation|vocab","said":"fragment as the learner said it","better":"corrected fragment","why_pt":"very simple explanation","example":"short English example"}],"corrected":"the learner's full last line with ONLY the errors fixed, or empty string if there are no corrections"}`;
+
+const corrItem = { type: "object", properties: { type: { type: "string" }, said: { type: "string" }, better: { type: "string" }, why_pt: { type: "string" }, example: { type: "string" } }, required: ["type", "said", "better", "why_pt", "example"] };
 export const SCHEMA = {
   type: "object",
-  properties: {
-    reply: { type: "string" }, reply_pt: { type: "string" }, topic_pt: { type: "string" }, level: { type: "string" },
-    corrections: { type: "array", items: { type: "object", properties: { type: { type: "string" }, said: { type: "string" }, better: { type: "string" }, why_pt: { type: "string" } }, required: ["type", "said", "better", "why_pt"] } },
-    corrected: { type: "string" }
-  },
+  properties: { reply: { type: "string" }, reply_pt: { type: "string" }, topic_pt: { type: "string" }, level: { type: "string" }, corrections: { type: "array", items: corrItem }, corrected: { type: "string" } },
   required: ["reply", "reply_pt", "topic_pt", "level", "corrections", "corrected"]
 };
 
 // monta o texto que vai para a IA: só as últimas falas (economiza a cota)
 export function buildPrompt(state, { extra = "", unsure = [] } = {}) {
-  const lines = (state.msgs || []).slice(-24).map(m => m.role === "me" ? `LEARNER (${m.spoken ? "spoken" : "typed"}): ${m.text}` : `SAM: ${m.text}`).join("\n");
+  const lines = (state.msgs || []).slice(-20).map(m => m.role === "me" ? `LEARNER (${m.spoken ? "spoken" : "typed"}): ${m.text}` : `SAM: ${m.text}`).join("\n");
   const u = unsure.length ? `\nThe speech recognizer was unsure about these words in the learner's last line: ${unsure.slice(0, 8).join(", ")}` : "";
   return `Current topic: ${state.topic || "none yet"}\nCurrent level estimate: ${state.level || "unknown"}\n\nConversation so far:\n${lines || "(empty: open the conversation. Greet the learner warmly, pick an easy first topic and ask a question.)"}${u}${extra ? "\n\nNote: " + extra : ""}\n\nAnswer with the JSON object only.`;
 }
 
-// a IA às vezes devolve texto com o JSON no meio: pega o primeiro objeto que der para ler
+// "Explicar de outro jeito": a correção de novo, mais fácil
+export const EXPLAIN_SYSTEM = `You help a Brazilian learner of American English who did not understand a correction. Explain it again like a patient teacher talking to a beginner: Brazilian Portuguese, at most 2 short sentences, everyday words, no grammar terms. Use a comparison with Portuguese if it helps. Then give 2 very short everyday English example sentences that use the correct form, each with its Portuguese translation, and 1 emoji per example as a visual hint.
+Answer ONLY with JSON: {"explain_pt":"...","examples":[{"en":"...","pt":"...","emoji":"..."}]}`;
+export const EXPLAIN_SCHEMA = { type: "object", properties: { explain_pt: { type: "string" }, examples: { type: "array", items: { type: "object", properties: { en: { type: "string" }, pt: { type: "string" }, emoji: { type: "string" } }, required: ["en", "pt", "emoji"] } } }, required: ["explain_pt", "examples"] };
+export const explainPrompt = (line, c, level) => `Learner level: ${level || "A2"}\nThe learner said: "${line}"\nCorrection: "${c.said}" -> "${c.better}"\nExplanation they did not understand: "${c.why_pt}"\n\nAnswer with the JSON object only.`;
+
+// "Não entendi": a fala do Sam de novo, mais simples e com emojis no lugar dos gestos
+export const SIMPLIFY_SYSTEM = `You are Sam, a friendly American conversation partner. The Brazilian learner did not understand your last message. Say the same thing again in much simpler English (A1 level: short sentences, the most common words, present tense when possible), using 1 to 3 emojis as visual hints, like a teacher using gestures. Keep the same question at the end. Also give a short hint in Brazilian Portuguese explaining the hardest word or idea (not a full translation).
+Answer ONLY with JSON: {"simple_en":"...","hint_pt":"..."}`;
+export const SIMPLIFY_SCHEMA = { type: "object", properties: { simple_en: { type: "string" }, hint_pt: { type: "string" } }, required: ["simple_en", "hint_pt"] };
+export const simplifyPrompt = text => `Your message the learner did not understand: "${text}"\n\nAnswer with the JSON object only.`;
+
+// a IA às vezes devolve texto com o JSON no meio: pega o objeto que der para ler
 export function looseJson(raw) {
   if (raw && typeof raw === "object") return raw;
   const s = String(raw || ""); const a = s.indexOf("{"), b = s.lastIndexOf("}");
@@ -40,15 +62,43 @@ export function looseJson(raw) {
   try { return JSON.parse(s.slice(a, b + 1)); } catch { return null; }
 }
 const str = (v, n) => typeof v === "string" ? v.trim().slice(0, n) : "";
+const norm = s => s.toLowerCase().replace(/[^a-z0-9']+/g, " ").trim();
 
-// confere e limpa a resposta; null se não der para usar
+// confere e limpa a resposta da conversa; null se não der para usar
 export function parseReply(raw) {
   const r = looseJson(raw); if (!r) return null;
   const reply = str(r.reply, 800); if (!reply) return null;
   const corrections = (Array.isArray(r.corrections) ? r.corrections : []).map(c => ({
-    type: TYPES.includes(c && c.type) ? c.type : "vocab", said: str(c && c.said, 200), better: str(c && c.better, 200), why_pt: str(c && c.why_pt, 300)
-  })).filter(c => c.better && c.better.toLowerCase() !== c.said.toLowerCase()).slice(0, 3);
+    type: TYPES.includes(c && c.type) ? c.type : "vocab", said: str(c && c.said, 200), better: str(c && c.better, 200), why_pt: str(c && c.why_pt, 300), example: str(c && c.example, 200)
+  })).filter(c => c.better && norm(c.better) !== norm(c.said)).slice(0, 3);
   return { reply, reply_pt: str(r.reply_pt, 900), topic_pt: str(r.topic_pt, 40), level: LEVELS.includes(r.level) ? r.level : "", corrections, corrected: corrections.length ? str(r.corrected, 500) : "" };
+}
+export function parseExplain(raw) {
+  const r = looseJson(raw); if (!r) return null;
+  const explain_pt = str(r.explain_pt, 400); if (!explain_pt) return null;
+  const examples = (Array.isArray(r.examples) ? r.examples : []).map(e => ({ en: str(e && e.en, 200), pt: str(e && e.pt, 200), emoji: str(e && e.emoji, 12) })).filter(e => e.en).slice(0, 3);
+  return { explain_pt, examples };
+}
+export function parseSimplify(raw) {
+  const r = looseJson(raw); if (!r) return null;
+  const simple_en = str(r.simple_en, 600); if (!simple_en) return null;
+  return { simple_en, hint_pt: str(r.hint_pt, 300) };
+}
+
+// pega o texto da resposta, seja qual for o formato do modelo (Llama, gpt-oss...)
+export function aiText(r) {
+  if (r == null) return "";
+  if (typeof r === "string") return r;
+  if (r.response !== undefined && r.response !== null) return r.response;
+  if (typeof r.output_text === "string") return r.output_text;
+  const ch = r.choices && r.choices[0] && r.choices[0].message;
+  if (ch && ch.content) return ch.content;
+  if (Array.isArray(r.output)) {
+    for (const o of [...r.output].reverse()) if (o && o.type === "message" && Array.isArray(o.content))
+      for (const c of o.content) if (c && typeof c.text === "string" && c.text) return c.text;
+  }
+  if (r.result) return aiText(r.result);
+  return r;
 }
 
 // palavras de que o Whisper não teve certeza (quando ele manda a probabilidade de cada palavra)

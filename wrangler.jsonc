@@ -12,10 +12,11 @@
   "vars": {
     // Dono do app (mesmo login do Gothic, em minúsculas): não tem limite diário.
     "ADMIN_USERNAME": "oenningxp",
-    // Modelo de conversa do Workers AI. Dá para trocar sem mexer no código.
-    "MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    // Falas por dia para cada amigo (protege a cota grátis da Cloudflare).
-    "DAILY_LIMIT": "120"
+    // Modelo do Sam no Workers AI (melhor em gramática) e o reserva, se o principal falhar.
+    "MODEL": "@cf/openai/gpt-oss-120b",
+    "FALLBACK_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    // Pedidos à IA por dia para cada amigo (protege a cota grátis da Cloudflare).
+    "DAILY_LIMIT": "40"
   },
   "ai": { "binding": "AI" },
   "d1_databases": [

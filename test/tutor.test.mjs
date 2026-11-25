@@ -28,3 +28,14 @@ assert.match(buildPrompt({ msgs: [] }), /open the conversation/);
 assert.deepEqual(unsureWords({ segments: [{ words: [{ word: " ship", probability: 0.3 }, { word: "the", probability: 0.99 }] }] }), ["ship"]);
 assert.deepEqual(unsureWords({ text: "x" }), []);
 console.log("tutor ok");
+
+// formatos de resposta dos modelos
+import { aiText, parseExplain, parseSimplify } from "../src/tutor.js";
+assert.equal(aiText({ response: "x" }), "x");
+assert.equal(aiText({ choices: [{ message: { content: '{"a":1}' } }] }), '{"a":1}');
+assert.equal(aiText({ output: [{ type: "reasoning", content: [{ text: "pensando" }] }, { type: "message", content: [{ type: "output_text", text: "final" }] }] }), "final");
+assert.equal(parseReply({ reply: "ok", corrections: [{ type: "grammar", said: "Try to ask", better: "try to ask!", why_pt: "" }] }).corrections.length, 0, "só pontuação/maiúscula não conta");
+assert.equal(parseReply({ reply: "ok", corrections: [{ type: "grammar", said: "a", better: "b", why_pt: "c", example: "d" }] }).corrections[0].example, "d");
+assert.equal(parseExplain({ explain_pt: "Fácil.", examples: [{ en: "Ask me.", pt: "Me pergunte.", emoji: "🙋" }] }).examples[0].emoji, "🙋");
+assert.equal(parseSimplify({ simple_en: "" }), null);
+console.log("formatos ok");

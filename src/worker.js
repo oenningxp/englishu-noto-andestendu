@@ -1,6 +1,6 @@
 // Englishu Noto Andestêndu: site, login com a conta do Gothic e a IA (Workers AI).
 import { checkPassword, hashPassword, checkTotp, randomToken, sha256 } from "./auth.js";
-import { SYSTEM, SCHEMA, buildPrompt, parseReply, unsureWords } from "./tutor.js";
+import { SYSTEM, SCHEMA, buildPrompt, parseReply, unsureWords, aiText, EXPLAIN_SYSTEM, EXPLAIN_SCHEMA, explainPrompt, parseExplain, SIMPLIFY_SYSTEM, SIMPLIFY_SCHEMA, simplifyPrompt, parseSimplify } from "./tutor.js";
 
 const SESSION_DAYS = 30, MAX_MSGS = 200, MAX_AUDIO = 3 * 1024 * 1024;
 const STT_MODEL = "@cf/openai/whisper-large-v3-turbo", TTS_MODEL = "@cf/myshell-ai/melotts";
@@ -84,22 +84,31 @@ async function saveState(env, uid, st) {
 const spDay = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
 async function useQuota(env, u) {
   if (isOwner(env, u)) return true;
-  const lim = parseInt(env.DAILY_LIMIT || "120", 10) || 120;
+  const lim = parseInt(env.DAILY_LIMIT || "40", 10) || 40;
   const r = await env.DB.prepare("INSERT INTO papo_usage (user_id,day,n) VALUES (?,?,1) ON CONFLICT(user_id,day) DO UPDATE SET n=n+1 RETURNING n").bind(u.id, spDay()).first();
   return !r || r.n <= lim;
 }
 const quotaErr = e => /4006|daily free allocation|neurons|quota|rate limit/i.test(String(e && (e.message || e)));
 
 // ---------- IA
-async function askSam(env, st, opts) {
-  const input = { messages: [{ role: "system", content: SYSTEM }, { role: "user", content: buildPrompt(st, opts) }], max_tokens: 700, temperature: 0.6 };
-  let r;
-  try { r = await env.AI.run(env.MODEL, { ...input, response_format: { type: "json_schema", json_schema: SCHEMA } }); }
-  catch (e) { if (quotaErr(e)) throw e; r = await env.AI.run(env.MODEL, input); } // modelo sem modo JSON: pede de novo sem ele
-  let out = parseReply(r && (r.response ?? r.result ?? r));
-  if (!out) { r = await env.AI.run(env.MODEL, input); out = parseReply(r && (r.response ?? r)); }
-  return out;
+// pede JSON à IA: tenta o modelo principal e, se falhar ou vier bagunçado, o reserva
+async function aiJson(env, system, user, schema, parse, maxTokens = 1400) {
+  const models = [...new Set([env.MODEL, env.FALLBACK_MODEL].filter(Boolean))];
+  let lastErr = null;
+  for (const model of models) {
+    const input = { messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: maxTokens, temperature: 0.5 };
+    for (const withSchema of [true, false]) {
+      try {
+        const r = await env.AI.run(model, withSchema ? { ...input, response_format: { type: "json_schema", json_schema: schema } } : input);
+        const out = parse(aiText(r));
+        if (out) return out;
+      } catch (e) { lastErr = e; if (quotaErr(e)) throw e; console.error(model, e); }
+    }
+  }
+  if (lastErr) throw lastErr;
+  return null;
 }
+const askSam = (env, st, opts) => aiJson(env, SYSTEM, buildPrompt(st, opts), SCHEMA, parseReply);
 const b64 = buf => { let s = ""; const a = new Uint8Array(buf); for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode(...a.subarray(i, i + 0x8000)); return btoa(s); };
 
 // ---------- API
@@ -155,6 +164,27 @@ async function api(req, env, path) {
     if (r.topic_pt) st.topic = r.topic_pt;
     if (r.level) st.level = r.level;
     st.msgs.push({ role: "ai", id: "m" + (++st.n), text: r.reply, pt: r.reply_pt });
+    await saveState(env, s.id, st);
+    return json({ state: st });
+  }
+  // --- "explicar de outro jeito" (uma correção) e "não entendi" (uma fala do Sam)
+  if ((path === "explain" || path === "simplify") && method === "POST") {
+    const st = await loadState(env, s.id), m = st.msgs.find(x => x.id === body.id);
+    if (!m) return err("Mensagem não encontrada.", 404);
+    let task;
+    if (path === "explain") {
+      const c = m.role === "me" && m.fix && m.fix.items[+body.idx];
+      if (!c) return err("Correção não encontrada.", 404);
+      if (c.more) return json({ state: st });
+      task = async () => { c.more = await aiJson(env, EXPLAIN_SYSTEM, explainPrompt(m.text, c, st.level), EXPLAIN_SCHEMA, parseExplain, 900); return c.more; };
+    } else {
+      if (m.role !== "ai") return err("Só dá para simplificar falas do Sam.");
+      if (m.simple) return json({ state: st });
+      task = async () => { m.simple = await aiJson(env, SIMPLIFY_SYSTEM, simplifyPrompt(m.text), SIMPLIFY_SCHEMA, parseSimplify, 700); return m.simple; };
+    }
+    if (!(await useQuota(env, s))) return err("Você chegou no limite de falas de hoje. Amanhã tem mais!", 429);
+    try { if (!(await task())) return err("Não consegui explicar agora. Tente de novo.", 502); }
+    catch (e) { console.error(e); return err(quotaErr(e) ? QUOTA : "Não consegui explicar agora. Tente de novo.", quotaErr(e) ? 429 : 502); }
     await saveState(env, s.id, st);
     return json({ state: st });
   }

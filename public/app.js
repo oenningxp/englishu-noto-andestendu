@@ -3,7 +3,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const TYPES = { grammar: "Gramática", pronunciation: "Pronúncia", vocab: "Naturalidade" };
 const chat = $("#chat"), main = $("#main"), inp = $("#inp"), mic = $("#mic"), statusEl = $("#status");
-let me = null, S = null, busy = false, practice = {}, rec = null, target = "chat";
+let me = null, S = null, busy = false, waiting = "", practice = {}, rec = null, target = "chat";
 const setStatus = t => { statusEl.textContent = t || ""; };
 
 async function api(path, body, raw) {
@@ -48,17 +48,20 @@ function render() {
     return;
   }
   chat.innerHTML = S.msgs.map(m => m.role === "ai"
-    ? `<div class="msg ai"><div class="bub">${esc(m.text)}</div><div class="tools"><button data-say="${m.id}">Ouvir de novo</button>${m.pt ? `<button data-pt="${m.id}">${m.showPt ? "Esconder tradução" : "Tradução"}</button>` : ""}</div>${m.showPt ? `<div class="pt">${esc(m.pt)}</div>` : ""}</div>`
+    ? `<div class="msg ai"><div class="bub">${esc(m.text)}</div><div class="tools"><button data-say="${m.id}">Ouvir de novo</button>${m.simple ? "" : `<button data-simple="${m.id}">${waiting === m.id ? "Simplificando…" : "Não entendi"}</button>`}${m.pt ? `<button data-pt="${m.id}">${m.showPt ? "Esconder tradução" : "Tradução"}</button>` : ""}</div>${m.showPt ? `<div class="pt">${esc(m.pt)}</div>` : ""}${m.simple ? `<div class="simple"><span class="lbl">Mais simples</span><span class="en">${esc(m.simple.simple_en)}</span>${m.simple.hint_pt ? `<span class="why">${esc(m.simple.hint_pt)}</span>` : ""}<div class="tools"><button data-saysimple="${m.id}">Ouvir</button></div></div>` : ""}</div>`
     : `<div class="msg mine"><div class="bub">${esc(m.text)}</div>${noteHtml(m)}</div>`).join("")
     + (busy ? '<div class="typing">Sam está digitando <i></i><i></i><i></i></div>' : "");
   main.scrollTop = main.scrollHeight;
+}
+function moreHtml(x) {
+  return `<div class="morebox"><span>${esc(x.explain_pt)}</span>${(x.examples || []).map(e => `<span class="exl"><b>${esc(e.emoji)} ${esc(e.en)}</b><i>${esc(e.pt)}</i></span>`).join("")}</div>`;
 }
 function noteHtml(m) {
   if (!m.fix) return "";
   const it = m.fix.items || [];
   if (!it.length) return '<div class="note clean">Perfeito, nada a corrigir.</div>';
   const p = practice[m.id], recOn = rec && target === m.id;
-  return `<div class="note">${it.map(c => `<div class="it"><span class="tag">${esc(TYPES[c.type] || "Dica")}</span><span class="said">${esc(c.said)}</span> → <span class="better">${esc(c.better)}</span><span class="why">${esc(c.why_pt)}</span></div>`).join("")}
+  return `<div class="note">${it.map((c, k) => `<div class="it"><span class="tag">${esc(TYPES[c.type] || "Dica")}</span><span class="said">${esc(c.said)}</span> → <span class="better">${esc(c.better)}</span><span class="why">${esc(c.why_pt)}</span>${c.example ? `<span class="ex">Ex.: ${esc(c.example)}</span>` : ""}${c.more ? moreHtml(c.more) : `<button class="more" data-explain="${m.id}" data-idx="${k}">${waiting === m.id + ":" + k ? "Explicando…" : "Explicar de outro jeito"}</button>`}</div>`).join("")}
   ${m.fix.corrected ? `<div class="fixed">${esc(m.fix.corrected)}</div><div class="row"><button class="alt" data-hear="${m.id}">Ouvir certo</button><button class="${recOn ? "rec" : ""}" data-prac="${m.id}">${recOn ? "Parar e conferir" : "Repetir em voz alta"}</button></div>` : ""}
   ${p ? `<div class="score">${p}</div>` : ""}</div>`;
 }
@@ -66,6 +69,12 @@ async function talk(path, body) {
   if (busy) return; busy = true; render(); setStatus("");
   try { const d = await api(path, body); S = d.state; busy = false; render(); const last = S.msgs[S.msgs.length - 1]; if (last && last.role === "ai") speak(last.text); }
   catch (x) { busy = false; render(); setStatus(x.message); }
+}
+async function extraAsk(path, body, key, after) {
+  if (waiting || busy) return; waiting = key; render(); setStatus("");
+  const keep = main.scrollTop;
+  try { const d = await api(path, body); const show = new Set(S.msgs.filter(m => m.showPt).map(m => m.id)); S = d.state; S.msgs.forEach(m => { if (show.has(m.id)) m.showPt = true; }); waiting = ""; render(); main.scrollTop = keep; after && after(); }
+  catch (x) { waiting = ""; render(); main.scrollTop = keep; setStatus(x.message); }
 }
 function send(text, spoken, unsure) {
   text = String(text || "").trim(); if (!text || busy) return;
@@ -161,6 +170,9 @@ chat.addEventListener("click", e => {
   const find = id => S.msgs.find(m => m.id === id);
   if (b.id === "go") talk("chat", {});
   else if (b.dataset.say) speak(find(b.dataset.say)?.text);
+  else if (b.dataset.saysimple) speak(find(b.dataset.saysimple)?.simple?.simple_en);
+  else if (b.dataset.simple) extraAsk("simplify", { id: b.dataset.simple }, b.dataset.simple, () => { const m = find(b.dataset.simple); if (m && m.simple) speak(m.simple.simple_en); });
+  else if (b.dataset.explain) extraAsk("explain", { id: b.dataset.explain, idx: +b.dataset.idx }, b.dataset.explain + ":" + b.dataset.idx);
   else if (b.dataset.pt) { const m = find(b.dataset.pt); if (m) { m.showPt = !m.showPt; render(); } }
   else if (b.dataset.hear) speak(find(b.dataset.hear)?.fix?.corrected);
   else if (b.dataset.prac) { if (rec && target === b.dataset.prac) stopRec(); else startRec(b.dataset.prac); }

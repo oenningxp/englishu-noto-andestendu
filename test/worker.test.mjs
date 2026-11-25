@@ -22,10 +22,14 @@ const AI = { run: async (model, input) => {
   calls.push(model);
   if (model.includes("whisper")) return { text: " I live in a big sheep ", segments: [{ words: [{ word: "sheep", probability: 0.4 }] }] };
   if (model.includes("melotts")) return { audio: btoa("fake-mp3") };
+  const sys = input.messages[0].content;
+  if (sys.startsWith("You help a Brazilian")) return { output: [{ type: "message", content: [{ type: "output_text", text: '{"explain_pt":"Mais fácil.","examples":[{"en":"I live on a ship.","pt":"Moro num navio.","emoji":"🚢"}]}' }] }] };
+  if (sys.includes("did not understand your last message")) return { choices: [{ message: { content: '{"simple_en":"What is your job? 💼","hint_pt":"job = trabalho"}' } }] };
+  if (model === "@cf/test/llm" && input.response_format) throw new Error("schema não suportado");
   return { response: { reply: "Cool! What do you do?", reply_pt: "Legal! O que você faz?", topic_pt: "Trabalho", level: "A2",
     corrections: [{ type: "pronunciation", said: "sheep", better: "ship", why_pt: "i curto." }], corrected: "I live on a big ship." } };
 } };
-const env = { DB, AI, IMAGES: {}, ASSETS: {}, MODEL: "@cf/test/llm", ADMIN_USERNAME: "oenningxp", DAILY_LIMIT: "2" };
+const env = { DB, AI, IMAGES: {}, ASSETS: {}, MODEL: "@cf/test/llm", ADMIN_USERNAME: "oenningxp", DAILY_LIMIT: "4", FALLBACK_MODEL: "@cf/test/reserva" };
 
 let cookie = "";
 async function call(path, body, raw) {
@@ -53,7 +57,12 @@ assert.equal(stt.data.text, "I live in a big sheep"); assert.deepEqual(stt.data.
 r = await call("chat", { text: stt.data.text, spoken: true, unsure: stt.data.unsure });
 const mine = r.data.state.msgs[1];
 assert.equal(mine.role, "me"); assert.equal(mine.fix.items[0].better, "ship"); assert.equal(r.data.state.level, "A2");
-assert.equal((await call("chat", { text: "again" })).status, 429, "limite diário do amigo (2)");
+const ex = await call("explain", { id: mine.id, idx: 0 });
+assert.equal(ex.data.state.msgs[1].fix.items[0].more.examples[0].emoji, "🚢");
+const sm = await call("simplify", { id: ex.data.state.msgs[2].id });
+assert.equal(sm.data.state.msgs[2].simple.hint_pt, "job = trabalho");
+assert.equal((await call("simplify", { id: mine.id })).status, 400, "só falas do Sam");
+assert.equal((await call("chat", { text: "again" })).status, 429, "limite diário do amigo (4)");
 const tts = await call("tts", { text: "Hello" }); assert.equal(new TextDecoder().decode(tts.data), "fake-mp3");
 assert.equal((await call("settings", { voice: "phone", rate: 5, auto: false })).data.settings.rate, 1.3);
 assert.equal((await call("me")).data.state.msgs.length, 3, "a conversa fica salva no servidor");
