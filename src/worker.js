@@ -174,29 +174,13 @@ function inputFor(mode, system, user, schema, maxTokens, effort) {
 const GROQ_URL = "https://api.groq.com/openai/v1";
 let cfBlockedDay = ""; // dia (UTC) em que a Cloudflare respondeu "cota acabou": pula direto pra Groq até virar o dia
 const cfBlocked = () => cfBlockedDay === utcDay();
-// ordem dos modelos externos grátis: Groq (cada modelo tem a sua cota diária) e depois Mistral
+// ordem dos modelos externos grátis: Groq (cada modelo tem a sua cota diária)
 const groqModels = task => task === "sugestões" ? ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"] : ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"];
-const mistralModels = task => task === "sugestões" ? ["mistral-small-latest", "mistral-medium-latest"] : ["mistral-medium-latest", "mistral-small-latest"];
-// quem atende cada idioma: japonês = Groq (e Cloudflare de reserva); inglês e espanhol = Groq, depois Mistral (se a conta dela tiver API liberada), depois Cloudflare
-function externalList(env, task, lang) {
-  const groq = env.GROQ_API_KEY ? groqModels(task).map(m => ["groq", m]) : [];
-  const mistral = env.MISTRAL_API_KEY && Date.now() > mistralOffUntil ? mistralModels(task).map(m => ["mistral", m]) : [];
-  return lang === "ja" ? groq : [...groq, ...mistral];
+// os três idiomas: Groq primeiro, Cloudflare de reserva
+function externalList(env, task) {
+  return env.GROQ_API_KEY ? groqModels(task).map(m => ["groq", m]) : [];
 }
 const stripThink = t => String(t || "").replace(/<think>[\s\S]*?<\/think>/g, ""); // modelos que "pensam em voz alta" (Qwen)
-let mistralOffUntil = 0; // conta da Mistral sem plano ativo (erro 402/401): pula ela por 10 minutos, pra não atrasar a resposta
-async function mistralJson(env, model, system, user, maxTokens, uid) {
-  const r = await fetch("https://api.mistral.ai/v1/chat/completions", {
-    method: "POST", headers: { Authorization: "Bearer " + env.MISTRAL_API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: maxTokens + 300, temperature: 0.5, response_format: { type: "json_object" } })
-  });
-  const d = await r.json().catch(() => ({}));
-  if (r.status === 401 || r.status === 402) mistralOffUntil = Date.now() + 10 * 60000;
-  if (!r.ok) throw new Error(`mistral ${r.status}: ${String((d && (d.message || (d.error && d.error.message))) || "").slice(0, 160)}`);
-  const content = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || "";
-  await meterGroq(env, uid, "mistral:" + model, (d.usage && d.usage.total_tokens) || Math.ceil((system.length + user.length + content.length) / 3.5));
-  return typeof content === "string" ? content : JSON.stringify(content);
-}
 // medidor da Groq: tokens por modelo (texto) e segundos de áudio (Whisper), por pessoa e por dia
 async function meterGroq(env, uid, model, amount) {
   if (!uid || !(amount > 0)) return;
@@ -232,18 +216,18 @@ async function groqStt(env, buf, language, uid) {
 async function aiJson(env, system, user, schema, parse, maxTokens = 1400, opt = {}) {
   const effort = opt.effort || "low", task = opt.task || "?";
   const log = x => { stats.push({ task, effort, ...x }); if (stats.length > 40) stats.shift(); };
-  const ext = externalList(env, task, opt.lang), hasGroq = ext.length > 0;
+  const ext = externalList(env, task), hasGroq = ext.length > 0;
   const tryGroq = async list => {
     for (const [prov, gm] of list) {
       const t0 = Date.now();
       try {
-        const txt = prov === "mistral" ? await mistralJson(env, gm, system, user, maxTokens, opt.uid) : await groqJson(env, gm, system, user, maxTokens, effort, opt.uid);
+        const txt = await groqJson(env, gm, system, user, maxTokens, effort, opt.uid);
         const out = parse(txt); log({ model: prov + ":" + gm, ms: Date.now() - t0, ok: !!out }); if (out) return out;
       } catch (e) { log({ model: prov + ":" + gm, ms: Date.now() - t0, ok: false, error: String(e && e.message || e).slice(0, 160) }); console.error(prov, gm, e); }
     }
     return null;
   };
-  if (opt.only && /^(groq|mistral):/.test(opt.only)) { const i = opt.only.indexOf(":"); return tryGroq([[opt.only.slice(0, i), opt.only.slice(i + 1)]]); }
+  if (opt.only && /^groq:/.test(opt.only)) { const i = opt.only.indexOf(":"); return tryGroq([[opt.only.slice(0, i), opt.only.slice(i + 1)]]); }
   const groqFirst = hasGroq && !opt.only && (env.PREFER_GROQ === "1" || cfBlocked());
   if (groqFirst) { const out = await tryGroq(ext); if (out) return out; }
   const models = opt.only ? [opt.only] : [...new Set([...(opt.models || []), env.MODEL, env.FALLBACK_MODEL].filter(Boolean))];
@@ -564,10 +548,7 @@ async function api(req, env, path, ctx) {
     }
     // limites do plano grátis da Groq (por modelo, por dia); os números exatos da sua conta ficam no console da Groq
     const groqLimits = { "openai/gpt-oss-120b": { amount: 200000, calls: 1000, unit: "tokens" }, "qwen/qwen3.8-27b": { amount: 200000, calls: 1000, unit: "tokens" }, "openai/gpt-oss-20b": { amount: 200000, calls: 1000, unit: "tokens" }, "whisper-large-v3-turbo": { amount: 28800, calls: 2000, unit: "segundos de áudio" } };
-    // Mistral: limite por mês (1 bilhão de tokens no plano grátis)
-    const month = utcDay().slice(0, 7);
-    const mistralMonth = (await env.DB.prepare("SELECT COALESCE(SUM(amount),0) AS t, COALESCE(SUM(calls),0) AS c FROM papo_groq WHERE model LIKE 'mistral:%' AND day LIKE ?").bind(month + "%").first()) || { t: 0, c: 0 };
-    return json({ today: utcDay(), free: FREE_NEURONS, since, rows, groq, groqLimits, mistral: { on: !!env.MISTRAL_API_KEY, month, tokens: mistralMonth.t, calls: mistralMonth.c, limit: 1e9 }, groqMode: env.GROQ_API_KEY ? (env.PREFER_GROQ === "1" ? "principal" : "reserva") : "sem chave", names, limit: parseInt(env.DAILY_LIMIT || "40", 10) || 40 });
+    return json({ today: utcDay(), free: FREE_NEURONS, since, rows, groq, groqLimits, groqMode: env.GROQ_API_KEY ? (env.PREFER_GROQ === "1" ? "principal" : "reserva") : "sem chave", names, limit: parseInt(env.DAILY_LIMIT || "40", 10) || 40 });
   }
   // velocidade dos modelos (só o dono): /api/admin/speed?lang=en mede cada candidato com a mesma conversa de teste
   if (path === "admin/speed" && method === "GET") {
@@ -582,7 +563,7 @@ async function api(req, env, path, ctx) {
       if (!ok && !error) { const l = [...stats].reverse().find(x => x.model === model && x.error); if (l) error = l.error; }
       out.push({ model, ms: Date.now() - t0, ok, sample, error });
     }
-    return json({ lang, reply_model: env.REPLY_MODEL || env.MODEL, check_model: env.MODEL, groq: env.GROQ_API_KEY ? (env.PREFER_GROQ === "1" ? "principal" : "reserva") : "sem chave", mistral: env.MISTRAL_API_KEY ? "ligada (depois da Groq, no inglês e espanhol)" : "sem chave", ordem_deste_idioma: [...externalList(env, "resposta", lang).map(([p, m]) => p + ":" + m), "cloudflare"], cloudflare_bloqueada_hoje: cfBlocked(), results: out, recent: stats.slice(-20) });
+    return json({ lang, reply_model: env.REPLY_MODEL || env.MODEL, check_model: env.MODEL, groq: env.GROQ_API_KEY ? (env.PREFER_GROQ === "1" ? "principal" : "reserva") : "sem chave", ordem_deste_idioma: [...externalList(env, "resposta", lang).map(([p, m]) => p + ":" + m), "cloudflare"], cloudflare_bloqueada_hoje: cfBlocked(), results: out, recent: stats.slice(-20) });
   }
   // diagnóstico da voz (só o dono): /api/tts-check?lang=ja mostra o que o servidor conseguiu gerar
   if (path === "tts-check" && method === "GET") {

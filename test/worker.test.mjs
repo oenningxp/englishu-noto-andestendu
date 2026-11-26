@@ -143,7 +143,6 @@ assert.ok(Object.values(us.names).some(n => n.username === "isabella"), "painel 
     if (body.response_format) assert.equal(body.response_format.type, "json_object");
     if (String(url).includes("groq") && globalThis.__groqDown) return Response.json({ error: { message: "rate limit" } }, { status: 429 });
     if (String(url).includes("groq") && body.model.includes("qwen") && body.response_format) return Response.json({ error: { message: "Failed to generate JSON. Please adjust your prompt." } }, { status: 400 });
-    if (String(url).includes("mistral")) return Response.json({ choices: [{ message: { content: '{"reply":"Hi from Mistral!","reply_pt":"Oi da Mistral!","topic_pt":"Teste","level":"A2","corrections":[],"corrected":""}' } }], usage: { total_tokens: 1234 } });
     return Response.json({ choices: [{ message: { content: '{"reply":"Hi from Groq!","reply_pt":"Oi da Groq!","topic_pt":"Teste","level":"A2","corrections":[],"corrected":""}' } }] });
   };
   const envG = { ...env, GROQ_API_KEY: "k", AI: { run: async () => { throw new Error("4006: you have used up your daily free allocation of 10,000 neurons"); } } };
@@ -151,26 +150,12 @@ assert.ok(Object.values(us.names).some(n => n.username === "isabella"), "painel 
   await callG("cmd", { cmd: "new", force: true }); await callG("chat", {});
   const g = await callG("chat", { text: "hello" });
   assert.equal(g.status, 200); assert.equal(g.data.state.msgs.at(-1).text, "Hi from Groq!", "resposta veio da Groq");
-  globalThis.__groqDown = true;
-  const envM = { ...envG, MISTRAL_API_KEY: "m" };
-  const rM = await worker.fetch(new Request("https://papo.test/api/chat", { method: "POST", headers: { Origin: "https://papo.test", Cookie: cookie }, body: JSON.stringify({ text: "hello again" }) }), envM);
-  assert.equal((await rM.json()).state.msgs.at(-1).text, "Hi from Mistral!", "Groq no limite: usa a Mistral");
-  assert.ok(groqCalls.some(u => u.includes("qwen") || true));
-  // japonês nunca vai pra Mistral
-  const before = groqCalls.filter(u => u.includes("mistral")).length;
-  await worker.fetch(new Request("https://papo.test/api/chat", { method: "POST", headers: { Origin: "https://papo.test", Cookie: cookie }, body: JSON.stringify({ text: "konnichiwa", lang: "ja" }) }), envM).catch(() => {});
-  assert.equal(groqCalls.filter(u => u.includes("mistral")).length, before, "Nii não usa a Mistral");
-  // inglês: Mistral primeiro, mesmo com a Groq funcionando
-  globalThis.__groqDown = false;
-  const n0 = groqCalls.length;
-  await worker.fetch(new Request("https://papo.test/api/chat", { method: "POST", headers: { Origin: "https://papo.test", Cookie: cookie }, body: JSON.stringify({ text: "one more" }) }), envM);
-  assert.ok(groqCalls[n0].includes("groq"), "Sam usa a Groq primeiro; Mistral fica de reserva");
   // Qwen: sem o formato exigido, tenta de novo e funciona
   const q = await worker.fetch(new Request("https://papo.test/api/admin/speed", { headers: { Cookie: cookie } }), { ...envG, GROQ_API_KEY: "k" });
   const qr = (await q.json()).results.find(x => x.model === "groq:qwen/qwen3.8-27b");
   assert.equal(qr.ok, true, "Qwen funciona na segunda tentativa");
   const gs = await callG("stt", new Uint8Array(100), true); assert.equal(gs.data.text, "hello from groq", "microfone pela Groq");
-  assert.ok(groqCalls.every(u => u.startsWith("https://api.groq.com/") || u.startsWith("https://api.mistral.ai/")));
+  assert.ok(groqCalls.every(u => u.startsWith("https://api.groq.com/")));
   const gu = (await call("admin/usage")).data;
   assert.ok(gu.groq.some(r => r.model === "openai/gpt-oss-120b" && r.amount > 0), "medidor da Groq anotou tokens");
   assert.ok(gu.groq.some(r => r.model === "whisper-large-v3-turbo" && r.amount >= 10), "medidor da Groq anotou o áudio");
