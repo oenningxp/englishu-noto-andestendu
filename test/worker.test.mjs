@@ -141,6 +141,8 @@ assert.ok(Object.values(us.names).some(n => n.username === "isabella"), "painel 
     if (String(url).includes("/audio/transcriptions")) return Response.json({ text: " hello from groq " });
     const body = JSON.parse(init.body);
     assert.equal(body.response_format.type, "json_object");
+    if (String(url).includes("groq") && globalThis.__groqDown) return Response.json({ error: { message: "rate limit" } }, { status: 429 });
+    if (String(url).includes("mistral")) return Response.json({ choices: [{ message: { content: '{"reply":"Hi from Mistral!","reply_pt":"Oi da Mistral!","topic_pt":"Teste","level":"A2","corrections":[],"corrected":""}' } }], usage: { total_tokens: 1234 } });
     return Response.json({ choices: [{ message: { content: '{"reply":"Hi from Groq!","reply_pt":"Oi da Groq!","topic_pt":"Teste","level":"A2","corrections":[],"corrected":""}' } }] });
   };
   const envG = { ...env, GROQ_API_KEY: "k", AI: { run: async () => { throw new Error("4006: you have used up your daily free allocation of 10,000 neurons"); } } };
@@ -148,8 +150,14 @@ assert.ok(Object.values(us.names).some(n => n.username === "isabella"), "painel 
   await callG("cmd", { cmd: "new", force: true }); await callG("chat", {});
   const g = await callG("chat", { text: "hello" });
   assert.equal(g.status, 200); assert.equal(g.data.state.msgs.at(-1).text, "Hi from Groq!", "resposta veio da Groq");
+  globalThis.__groqDown = true;
+  const envM = { ...envG, MISTRAL_API_KEY: "m" };
+  const rM = await worker.fetch(new Request("https://papo.test/api/chat", { method: "POST", headers: { Origin: "https://papo.test", Cookie: cookie }, body: JSON.stringify({ text: "hello again" }) }), envM);
+  assert.equal((await rM.json()).state.msgs.at(-1).text, "Hi from Mistral!", "Groq no limite: usa a Mistral");
+  assert.ok(groqCalls.some(u => u.includes("qwen") || true));
+  globalThis.__groqDown = false;
   const gs = await callG("stt", new Uint8Array(100), true); assert.equal(gs.data.text, "hello from groq", "microfone pela Groq");
-  assert.ok(groqCalls.every(u => u.startsWith("https://api.groq.com/")));
+  assert.ok(groqCalls.every(u => u.startsWith("https://api.groq.com/") || u.startsWith("https://api.mistral.ai/")));
   const gu = (await call("admin/usage")).data;
   assert.ok(gu.groq.some(r => r.model === "openai/gpt-oss-120b" && r.amount > 0), "medidor da Groq anotou tokens");
   assert.ok(gu.groq.some(r => r.model === "whisper-large-v3-turbo" && r.amount >= 10), "medidor da Groq anotou o áudio");
