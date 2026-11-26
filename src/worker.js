@@ -180,16 +180,18 @@ const mistralModels = task => task === "sugestões" ? ["mistral-small-latest", "
 // quem atende cada idioma: japonês = Groq (e Cloudflare de reserva); inglês e espanhol = Mistral primeiro (Groq e Cloudflare de reserva)
 function externalList(env, task, lang) {
   const groq = env.GROQ_API_KEY ? groqModels(task).map(m => ["groq", m]) : [];
-  const mistral = env.MISTRAL_API_KEY ? mistralModels(task).map(m => ["mistral", m]) : [];
+  const mistral = env.MISTRAL_API_KEY && Date.now() > mistralOffUntil ? mistralModels(task).map(m => ["mistral", m]) : [];
   return lang === "ja" ? groq : [...mistral, ...groq];
 }
 const stripThink = t => String(t || "").replace(/<think>[\s\S]*?<\/think>/g, ""); // modelos que "pensam em voz alta" (Qwen)
+let mistralOffUntil = 0; // conta da Mistral sem plano ativo (erro 402/401): pula ela por 10 minutos, pra não atrasar a resposta
 async function mistralJson(env, model, system, user, maxTokens, uid) {
   const r = await fetch("https://api.mistral.ai/v1/chat/completions", {
     method: "POST", headers: { Authorization: "Bearer " + env.MISTRAL_API_KEY, "Content-Type": "application/json" },
     body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: maxTokens + 300, temperature: 0.5, response_format: { type: "json_object" } })
   });
   const d = await r.json().catch(() => ({}));
+  if (r.status === 401 || r.status === 402) mistralOffUntil = Date.now() + 10 * 60000;
   if (!r.ok) throw new Error(`mistral ${r.status}: ${String((d && (d.message || (d.error && d.error.message))) || "").slice(0, 160)}`);
   const content = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || "";
   await meterGroq(env, uid, "mistral:" + model, (d.usage && d.usage.total_tokens) || Math.ceil((system.length + user.length + content.length) / 3.5));
@@ -572,6 +574,7 @@ async function api(req, env, path, ctx) {
       const t0 = Date.now(); let ok = false, sample = "", error = "";
       try { const r = await aiJson(env, tutorParts(T, s.nick).reply, T.buildPrompt(test, {}), REPLY_SCHEMA, parseReplyOnly(T.parseReply), 700, { only: model, effort: "low", task: "teste de velocidade", uid: s.id }); ok = !!r; sample = r ? r.reply : ""; }
       catch (e) { error = String(e && e.message || e).slice(0, 160); }
+      if (!ok && !error) { const l = [...stats].reverse().find(x => x.model === model && x.error); if (l) error = l.error; }
       out.push({ model, ms: Date.now() - t0, ok, sample, error });
     }
     return json({ lang, reply_model: env.REPLY_MODEL || env.MODEL, check_model: env.MODEL, groq: env.GROQ_API_KEY ? (env.PREFER_GROQ === "1" ? "principal" : "reserva") : "sem chave", mistral: env.MISTRAL_API_KEY ? "ligada (principal no inglês e espanhol)" : "sem chave", ordem_deste_idioma: [...externalList(env, "resposta", lang).map(([p, m]) => p + ":" + m), "cloudflare"], cloudflare_bloqueada_hoje: cfBlocked(), results: out, recent: stats.slice(-20) });
