@@ -155,7 +155,15 @@ assert.ok(Object.values(us.names).some(n => n.username === "isabella"), "painel 
   const rM = await worker.fetch(new Request("https://papo.test/api/chat", { method: "POST", headers: { Origin: "https://papo.test", Cookie: cookie }, body: JSON.stringify({ text: "hello again" }) }), envM);
   assert.equal((await rM.json()).state.msgs.at(-1).text, "Hi from Mistral!", "Groq no limite: usa a Mistral");
   assert.ok(groqCalls.some(u => u.includes("qwen") || true));
+  // japonês nunca vai pra Mistral
+  const before = groqCalls.filter(u => u.includes("mistral")).length;
+  await worker.fetch(new Request("https://papo.test/api/chat", { method: "POST", headers: { Origin: "https://papo.test", Cookie: cookie }, body: JSON.stringify({ text: "konnichiwa", lang: "ja" }) }), envM).catch(() => {});
+  assert.equal(groqCalls.filter(u => u.includes("mistral")).length, before, "Nii não usa a Mistral");
+  // inglês: Mistral primeiro, mesmo com a Groq funcionando
   globalThis.__groqDown = false;
+  const n0 = groqCalls.length;
+  await worker.fetch(new Request("https://papo.test/api/chat", { method: "POST", headers: { Origin: "https://papo.test", Cookie: cookie }, body: JSON.stringify({ text: "one more" }) }), envM);
+  assert.ok(groqCalls[n0].includes("mistral"), "Sam usa a Mistral primeiro");
   const gs = await callG("stt", new Uint8Array(100), true); assert.equal(gs.data.text, "hello from groq", "microfone pela Groq");
   assert.ok(groqCalls.every(u => u.startsWith("https://api.groq.com/") || u.startsWith("https://api.mistral.ai/")));
   const gu = (await call("admin/usage")).data;

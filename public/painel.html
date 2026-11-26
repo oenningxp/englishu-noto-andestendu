@@ -98,13 +98,13 @@ function render(d) {
   $("#out").innerHTML = `
   <p class="sub">Hoje: dia ${esc(today.split("-").reverse().join("/"))} (UTC) · renova em ${untilReset()}, às 21h de Brasília.</p>
   <section class="hero">
-    <span class="sub">Groq: ${esc(groqMode === "principal" ? "principal (usada primeiro)" : groqMode === "reserva" ? "reserva (só quando a Cloudflare acaba)" : "sem chave cadastrada")}</span>
+    <span class="sub">Groq: ${esc(groqMode === "principal" ? "principal no japonês, reserva no inglês e espanhol" : groqMode === "reserva" ? "reserva (só quando a Cloudflare acaba)" : "sem chave cadastrada")}</span>
     <div class="big" style="color:${tone(gMax)}">${pctTxt(gMax)}<small>do modelo mais usado</small></div>
     <div class="days">${Object.entries(groqLimits).map(([m, l]) => { const u = gModel[m] || { amount: 0, calls: 0 }, p = pct(u.amount, l.amount);
       return `<div class="day gm"><span>${esc(m.replace("openai/", "").replace("-large-v3-turbo", " (microfone)"))}</span><div class="mini"><i style="width:${Math.min(100, p)}%;background:${tone(p)}"></i></div><span class="n">${pctTxt(p)}</span><span class="sub gm2">${fmt(u.amount)} de ${fmt(l.amount)} ${esc(l.unit)} · ${u.calls} de ${fmt(l.calls)} pedidos</span></div>`; }).join("")}</div>
   </section>
   ${mistral ? `<section class="hero">
-    <span class="sub">Mistral: ${mistral.on ? "ligada (entra quando a Groq atinge o limite)" : "sem chave cadastrada"} · limite do mês</span>
+    <span class="sub">Mistral: ${mistral.on ? "principal no inglês e espanhol" : "sem chave cadastrada"} · limite do mês</span>
     <div class="big" style="color:${tone(pct(mistral.tokens, mistral.limit))}">${pctTxt(pct(mistral.tokens, mistral.limit))}<small>${fmt(mistral.tokens)} de 1 bilhão de tokens · ${mistral.calls} pedidos no mês</small></div>
   </section>` : ""}
   <section class="hero">

@@ -177,8 +177,11 @@ const cfBlocked = () => cfBlockedDay === utcDay();
 // ordem dos modelos externos grátis: Groq (cada modelo tem a sua cota diária) e depois Mistral
 const groqModels = task => task === "sugestões" ? ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"] : ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"];
 const mistralModels = task => task === "sugestões" ? ["mistral-small-latest", "mistral-medium-latest"] : ["mistral-medium-latest", "mistral-small-latest"];
-function externalList(env, task) {
-  return [...(env.GROQ_API_KEY ? groqModels(task).map(m => ["groq", m]) : []), ...(env.MISTRAL_API_KEY ? mistralModels(task).map(m => ["mistral", m]) : [])];
+// quem atende cada idioma: japonês = Groq (e Cloudflare de reserva); inglês e espanhol = Mistral primeiro (Groq e Cloudflare de reserva)
+function externalList(env, task, lang) {
+  const groq = env.GROQ_API_KEY ? groqModels(task).map(m => ["groq", m]) : [];
+  const mistral = env.MISTRAL_API_KEY ? mistralModels(task).map(m => ["mistral", m]) : [];
+  return lang === "ja" ? groq : [...mistral, ...groq];
 }
 const stripThink = t => String(t || "").replace(/<think>[\s\S]*?<\/think>/g, ""); // modelos que "pensam em voz alta" (Qwen)
 async function mistralJson(env, model, system, user, maxTokens, uid) {
@@ -222,7 +225,7 @@ async function groqStt(env, buf, language, uid) {
 async function aiJson(env, system, user, schema, parse, maxTokens = 1400, opt = {}) {
   const effort = opt.effort || "low", task = opt.task || "?";
   const log = x => { stats.push({ task, effort, ...x }); if (stats.length > 40) stats.shift(); };
-  const ext = externalList(env, task), hasGroq = ext.length > 0;
+  const ext = externalList(env, task, opt.lang), hasGroq = ext.length > 0;
   const tryGroq = async list => {
     for (const [prov, gm] of list) {
       const t0 = Date.now();
@@ -266,10 +269,10 @@ function tutorParts(T, nick) {
   return partsCache.get(key);
 }
 const replyModels = env => (env.REPLY_MODEL ? [env.REPLY_MODEL] : []);
-const askReply = (env, T, nick, st, opts, uid) => aiJson(env, tutorParts(T, nick).reply, T.buildPrompt(st, opts), REPLY_SCHEMA, parseReplyOnly(T.parseReply), 700, { models: replyModels(env), effort: "low", task: "resposta", uid });
-const askCheck = (env, T, nick, st, unsure, uid) => aiJson(env, tutorParts(T, nick).check, checkPrompt(st, T.name, unsure, T.plain), CHECK_SCHEMA, parseCheck(T.parseReply), 1200, { effort: env.CHECK_EFFORT || "low", task: "correção", uid });
+const askReply = (env, T, nick, st, opts, uid) => aiJson(env, tutorParts(T, nick).reply, T.buildPrompt(st, opts), REPLY_SCHEMA, parseReplyOnly(T.parseReply), 700, { models: replyModels(env), effort: "low", task: "resposta", uid, lang: T.lang });
+const askCheck = (env, T, nick, st, unsure, uid) => aiJson(env, tutorParts(T, nick).check, checkPrompt(st, T.name, unsure, T.plain), CHECK_SCHEMA, parseCheck(T.parseReply), 1200, { effort: env.CHECK_EFFORT || "low", task: "correção", uid, lang: T.lang });
 // sugestões: modelo menor e mais barato (SUG_MODEL), só quando a pessoa pede
-const askSug = (env, T, nick, st, aiMsg, uid) => aiJson(env, tutorParts(T, nick).sug, sugPrompt(st, aiMsg, T.plain), SUG_SCHEMA, parseSug, 900, { models: env.SUG_MODEL ? [env.SUG_MODEL] : replyModels(env), effort: "low", task: "sugestões", uid });
+const askSug = (env, T, nick, st, aiMsg, uid) => aiJson(env, tutorParts(T, nick).sug, sugPrompt(st, aiMsg, T.plain), SUG_SCHEMA, parseSug, 900, { models: env.SUG_MODEL ? [env.SUG_MODEL] : replyModels(env), effort: "low", task: "sugestões", uid, lang: T.lang });
 // voz do servidor: Deepgram Aura-2 (só inglês; o MeloTTS foi desativado pela Cloudflare em 20/11/2026).
 // Japonês não tem voz no servidor: o app usa a voz japonesa do aparelho.
 async function toBytes(r) {
@@ -416,7 +419,7 @@ async function api(req, env, path, ctx) {
     if (!m || m.role !== "ai") return err("Mensagem não encontrada.", 404);
     if (!(await useQuota(env, s))) return err("Você chegou no limite de falas de hoje. Amanhã tem mais!", 429);
     let more;
-    try { more = await aiJson(env, T.MORE_SUG_SYSTEM, T.moreSugPrompt(st, m), T.MORE_SUG_SCHEMA, T.parseMoreSug, 1200, { models: env.SUG_MODEL ? [env.SUG_MODEL] : [], task: "sugestões", uid: s.id }); }
+    try { more = await aiJson(env, T.MORE_SUG_SYSTEM, T.moreSugPrompt(st, m), T.MORE_SUG_SCHEMA, T.parseMoreSug, 1200, { models: env.SUG_MODEL ? [env.SUG_MODEL] : [], task: "sugestões", uid: s.id, lang: T.lang }); }
     catch (e) { console.error(e); return err(quotaErr(e) ? QUOTA : "Não consegui criar sugestões agora. Tente de novo.", quotaErr(e) ? 429 : 502); }
     if (!more) return err("Não consegui criar sugestões agora. Tente de novo.", 502);
     m.sugOld = [...(m.sugOld || []), ...(m.sug || [])].slice(-15); m.sug = more; st.dirty = true;
@@ -431,11 +434,11 @@ async function api(req, env, path, ctx) {
       const c = m.role === "me" && m.fix && m.fix.items[+body.idx];
       if (!c) return err("Correção não encontrada.", 404);
       if (c.more) return json({ state: st });
-      task = async () => { c.more = await aiJson(env, T.EXPLAIN_SYSTEM, T.explainPrompt(m.text, c, st.level), T.EXPLAIN_SCHEMA, T.parseExplain, 900, { task: "explicações", uid: s.id }); return c.more; };
+      task = async () => { c.more = await aiJson(env, T.EXPLAIN_SYSTEM, T.explainPrompt(m.text, c, st.level), T.EXPLAIN_SCHEMA, T.parseExplain, 900, { task: "explicações", uid: s.id, lang: T.lang }); return c.more; };
     } else {
       if (m.role !== "ai") return err(`Só dá para simplificar falas do ${T.name}.`);
       if (m.simple) return json({ state: st });
-      task = async () => { m.simple = await aiJson(env, T.SIMPLIFY_SYSTEM, T.simplifyPrompt(m.text), T.SIMPLIFY_SCHEMA, T.parseSimplify, 700, { task: "explicações", uid: s.id }); return m.simple; };
+      task = async () => { m.simple = await aiJson(env, T.SIMPLIFY_SYSTEM, T.simplifyPrompt(m.text), T.SIMPLIFY_SCHEMA, T.parseSimplify, 700, { task: "explicações", uid: s.id, lang: T.lang }); return m.simple; };
     }
     if (!(await useQuota(env, s))) return err("Você chegou no limite de falas de hoje. Amanhã tem mais!", 429);
     try { if (!(await task())) return err("Não consegui explicar agora. Tente de novo.", 502); }
@@ -563,7 +566,7 @@ async function api(req, env, path, ctx) {
   if (path === "admin/speed" && method === "GET") {
     if (!isOwner(env, s)) return err("Só o dono.", 403);
     const test = { msgs: [{ role: "ai", text: lang === "ja" ? "こんにちは！ニイです。げんきですか？" : lang === "es" ? "¡Hola! Soy Juan. ¿Cómo estás hoy?" : "Hi! I'm Sam. How's your day going?" }, { role: "me", text: lang === "ja" ? "genki desu, arigatou" : lang === "es" ? "Yo estoy bien, obrigado" : "Its going good, i working a lot today", spoken: false }], topic: "", level: "" };
-    const cand = [...new Set([env.REPLY_MODEL, env.MODEL, "@cf/openai/gpt-oss-20b", "@cf/meta/llama-4-scout-17b-16e-instruct"].filter(Boolean)), ...(env.GROQ_API_KEY ? ["groq:openai/gpt-oss-120b", "groq:qwen/qwen3.8-27b", "groq:openai/gpt-oss-20b"] : []), ...(env.MISTRAL_API_KEY ? ["mistral:mistral-medium-latest", "mistral:mistral-small-latest"] : [])];
+    const cand = [...new Set([env.REPLY_MODEL, env.MODEL, "@cf/openai/gpt-oss-20b", "@cf/meta/llama-4-scout-17b-16e-instruct"].filter(Boolean)), ...externalList(env, "resposta", lang).map(([p, m]) => p + ":" + m)];
     const out = [];
     for (const model of cand) {
       const t0 = Date.now(); let ok = false, sample = "", error = "";
@@ -571,7 +574,7 @@ async function api(req, env, path, ctx) {
       catch (e) { error = String(e && e.message || e).slice(0, 160); }
       out.push({ model, ms: Date.now() - t0, ok, sample, error });
     }
-    return json({ lang, reply_model: env.REPLY_MODEL || env.MODEL, check_model: env.MODEL, groq: env.GROQ_API_KEY ? (env.PREFER_GROQ === "1" ? "principal" : "reserva") : "sem chave", mistral: env.MISTRAL_API_KEY ? "ligada (depois da Groq)" : "sem chave", cloudflare_bloqueada_hoje: cfBlocked(), results: out, recent: stats.slice(-20) });
+    return json({ lang, reply_model: env.REPLY_MODEL || env.MODEL, check_model: env.MODEL, groq: env.GROQ_API_KEY ? (env.PREFER_GROQ === "1" ? "principal" : "reserva") : "sem chave", mistral: env.MISTRAL_API_KEY ? "ligada (principal no inglês e espanhol)" : "sem chave", ordem_deste_idioma: [...externalList(env, "resposta", lang).map(([p, m]) => p + ":" + m), "cloudflare"], cloudflare_bloqueada_hoje: cfBlocked(), results: out, recent: stats.slice(-20) });
   }
   // diagnóstico da voz (só o dono): /api/tts-check?lang=ja mostra o que o servidor conseguiu gerar
   if (path === "tts-check" && method === "GET") {
