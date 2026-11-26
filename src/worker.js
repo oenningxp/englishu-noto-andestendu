@@ -177,11 +177,11 @@ const cfBlocked = () => cfBlockedDay === utcDay();
 // ordem dos modelos externos grátis: Groq (cada modelo tem a sua cota diária) e depois Mistral
 const groqModels = task => task === "sugestões" ? ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"] : ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"];
 const mistralModels = task => task === "sugestões" ? ["mistral-small-latest", "mistral-medium-latest"] : ["mistral-medium-latest", "mistral-small-latest"];
-// quem atende cada idioma: japonês = Groq (e Cloudflare de reserva); inglês e espanhol = Mistral primeiro (Groq e Cloudflare de reserva)
+// quem atende cada idioma: japonês = Groq (e Cloudflare de reserva); inglês e espanhol = Groq, depois Mistral (se a conta dela tiver API liberada), depois Cloudflare
 function externalList(env, task, lang) {
   const groq = env.GROQ_API_KEY ? groqModels(task).map(m => ["groq", m]) : [];
   const mistral = env.MISTRAL_API_KEY && Date.now() > mistralOffUntil ? mistralModels(task).map(m => ["mistral", m]) : [];
-  return lang === "ja" ? groq : [...mistral, ...groq];
+  return lang === "ja" ? groq : [...groq, ...mistral];
 }
 const stripThink = t => String(t || "").replace(/<think>[\s\S]*?<\/think>/g, ""); // modelos que "pensam em voz alta" (Qwen)
 let mistralOffUntil = 0; // conta da Mistral sem plano ativo (erro 402/401): pula ela por 10 minutos, pra não atrasar a resposta
@@ -577,7 +577,7 @@ async function api(req, env, path, ctx) {
       if (!ok && !error) { const l = [...stats].reverse().find(x => x.model === model && x.error); if (l) error = l.error; }
       out.push({ model, ms: Date.now() - t0, ok, sample, error });
     }
-    return json({ lang, reply_model: env.REPLY_MODEL || env.MODEL, check_model: env.MODEL, groq: env.GROQ_API_KEY ? (env.PREFER_GROQ === "1" ? "principal" : "reserva") : "sem chave", mistral: env.MISTRAL_API_KEY ? "ligada (principal no inglês e espanhol)" : "sem chave", ordem_deste_idioma: [...externalList(env, "resposta", lang).map(([p, m]) => p + ":" + m), "cloudflare"], cloudflare_bloqueada_hoje: cfBlocked(), results: out, recent: stats.slice(-20) });
+    return json({ lang, reply_model: env.REPLY_MODEL || env.MODEL, check_model: env.MODEL, groq: env.GROQ_API_KEY ? (env.PREFER_GROQ === "1" ? "principal" : "reserva") : "sem chave", mistral: env.MISTRAL_API_KEY ? "ligada (depois da Groq, no inglês e espanhol)" : "sem chave", ordem_deste_idioma: [...externalList(env, "resposta", lang).map(([p, m]) => p + ":" + m), "cloudflare"], cloudflare_bloqueada_hoje: cfBlocked(), results: out, recent: stats.slice(-20) });
   }
   // diagnóstico da voz (só o dono): /api/tts-check?lang=ja mostra o que o servidor conseguiu gerar
   if (path === "tts-check" && method === "GET") {

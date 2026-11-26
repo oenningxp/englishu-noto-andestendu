@@ -163,7 +163,7 @@ assert.ok(Object.values(us.names).some(n => n.username === "isabella"), "painel 
   globalThis.__groqDown = false;
   const n0 = groqCalls.length;
   await worker.fetch(new Request("https://papo.test/api/chat", { method: "POST", headers: { Origin: "https://papo.test", Cookie: cookie }, body: JSON.stringify({ text: "one more" }) }), envM);
-  assert.ok(groqCalls[n0].includes("mistral"), "Sam usa a Mistral primeiro");
+  assert.ok(groqCalls[n0].includes("groq"), "Sam usa a Groq primeiro; Mistral fica de reserva");
   const gs = await callG("stt", new Uint8Array(100), true); assert.equal(gs.data.text, "hello from groq", "microfone pela Groq");
   assert.ok(groqCalls.every(u => u.startsWith("https://api.groq.com/") || u.startsWith("https://api.mistral.ai/")));
   const gu = (await call("admin/usage")).data;
