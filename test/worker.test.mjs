@@ -133,6 +133,26 @@ const us = (await call("admin/usage")).data;
 assert.ok(us.rows.some(r => r.task === "resposta" && r.neurons > 0), "medidor anotou as respostas");
 assert.ok(Object.values(us.names).some(n => n.username === "isabella"), "painel mostra quem gastou");
 
+// Groq: quando a Cloudflare diz que a cota acabou (4006), usa a Groq
+{
+  const realFetch = globalThis.fetch, groqCalls = [];
+  globalThis.fetch = async (url, init) => {
+    groqCalls.push(String(url));
+    if (String(url).includes("/audio/transcriptions")) return Response.json({ text: " hello from groq " });
+    const body = JSON.parse(init.body);
+    assert.equal(body.response_format.type, "json_object");
+    return Response.json({ choices: [{ message: { content: '{"reply":"Hi from Groq!","reply_pt":"Oi da Groq!","topic_pt":"Teste","level":"A2","corrections":[],"corrected":""}' } }] });
+  };
+  const envG = { ...env, GROQ_API_KEY: "k", AI: { run: async () => { throw new Error("4006: you have used up your daily free allocation of 10,000 neurons"); } } };
+  const callG = async (path, body, raw) => { const r = await worker.fetch(new Request("https://papo.test/api/" + path, { method: "POST", headers: { Origin: "https://papo.test", Cookie: cookie }, body: raw ? body : JSON.stringify(body) }), envG); return { status: r.status, data: await r.json() }; };
+  await callG("cmd", { cmd: "new", force: true }); await callG("chat", {});
+  const g = await callG("chat", { text: "hello" });
+  assert.equal(g.status, 200); assert.equal(g.data.state.msgs.at(-1).text, "Hi from Groq!", "resposta veio da Groq");
+  const gs = await callG("stt", new Uint8Array(100), true); assert.equal(gs.data.text, "hello from groq", "microfone pela Groq");
+  assert.ok(groqCalls.every(u => u.startsWith("https://api.groq.com/")));
+  globalThis.fetch = realFetch;
+}
+
 // contas só do Englishu (sem 2FA)
 cookie = "";
 assert.equal((await call("login", { username: "Amanda", password: "errada" })).status, 401);

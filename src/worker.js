@@ -168,25 +168,64 @@ function inputFor(mode, system, user, schema, maxTokens, effort) {
   const base = { messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: maxTokens, temperature: 0.5 };
   return mode === "schema" ? { ...base, response_format: { type: "json_schema", json_schema: schema } } : base;
 }
+// ---------- Groq: reserva grátis (mesmo modelo gpt-oss) quando a cota da Cloudflare acaba.
+// Só funciona com a chave GROQ_API_KEY cadastrada como segredo do Worker. PREFER_GROQ=1 usa a Groq primeiro.
+const GROQ_URL = "https://api.groq.com/openai/v1";
+let cfBlockedDay = ""; // dia (UTC) em que a Cloudflare respondeu "cota acabou": pula direto pra Groq até virar o dia
+const cfBlocked = () => cfBlockedDay === utcDay();
+const groqModels = task => task === "sugestões" ? ["openai/gpt-oss-20b", "openai/gpt-oss-120b"] : ["openai/gpt-oss-120b", "openai/gpt-oss-20b"];
+async function groqJson(env, model, system, user, maxTokens, effort) {
+  const r = await fetch(GROQ_URL + "/chat/completions", {
+    method: "POST", headers: { Authorization: "Bearer " + env.GROQ_API_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_completion_tokens: maxTokens + 1000, temperature: 0.5, response_format: { type: "json_object" }, ...(/gpt-oss/.test(model) ? { reasoning_effort: effort } : {}) })
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`groq ${r.status}: ${(d.error && d.error.message || "").slice(0, 160)}`);
+  return (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || "";
+}
+async function groqStt(env, buf, language) {
+  const fd = new FormData();
+  fd.append("file", new Blob([buf], { type: "audio/wav" }), "audio.wav");
+  fd.append("model", "whisper-large-v3-turbo"); fd.append("language", language); fd.append("response_format", "json");
+  const r = await fetch(GROQ_URL + "/audio/transcriptions", { method: "POST", headers: { Authorization: "Bearer " + env.GROQ_API_KEY }, body: fd });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`groq ${r.status}: ${(d.error && d.error.message || "").slice(0, 160)}`);
+  return String(d.text || "");
+}
 async function aiJson(env, system, user, schema, parse, maxTokens = 1400, opt = {}) {
+  const effort = opt.effort || "low", task = opt.task || "?";
+  const log = x => { stats.push({ task, effort, ...x }); if (stats.length > 40) stats.shift(); };
+  const hasGroq = !!env.GROQ_API_KEY;
+  const tryGroq = async list => {
+    for (const gm of list) {
+      const t0 = Date.now();
+      try { const out = parse(await groqJson(env, gm, system, user, maxTokens, effort)); log({ model: "groq:" + gm, ms: Date.now() - t0, ok: !!out }); if (out) return out; }
+      catch (e) { log({ model: "groq:" + gm, ms: Date.now() - t0, ok: false, error: String(e && e.message || e).slice(0, 160) }); console.error("groq", gm, e); }
+    }
+    return null;
+  };
+  if (opt.only && opt.only.startsWith("groq:")) return hasGroq ? tryGroq([opt.only.slice(5)]) : null;
+  const groqFirst = hasGroq && !opt.only && (env.PREFER_GROQ === "1" || cfBlocked());
+  if (groqFirst) { const out = await tryGroq(groqModels(task)); if (out) return out; }
   const models = opt.only ? [opt.only] : [...new Set([...(opt.models || []), env.MODEL, env.FALLBACK_MODEL].filter(Boolean))];
-  const effort = opt.effort || "low";
   let lastErr = null;
-  for (const model of models) {
+  cf: for (const model of models) {
     for (const mode of modesFor(model, effort)) {
       const t0 = Date.now();
       try {
         const r = await env.AI.run(model, inputFor(mode, system, user, schema, maxTokens, effort));
         const txt = aiText(r), out = parse(txt);
-        await meter(env, opt.uid, opt.task || "outro", llmNeurons(model, r, system.length + user.length, typeof txt === "string" ? txt : JSON.stringify(txt)));
-        stats.push({ task: opt.task || "?", model, mode, effort, ms: Date.now() - t0, ok: !!out }); if (stats.length > 40) stats.shift();
+        await meter(env, opt.uid, task, llmNeurons(model, r, system.length + user.length, typeof txt === "string" ? txt : JSON.stringify(txt)));
+        log({ model, mode, ms: Date.now() - t0, ok: !!out });
         if (out) { modeOk.set(model + "|" + effort, mode); return out; }
       } catch (e) {
-        stats.push({ task: opt.task || "?", model, mode, effort, ms: Date.now() - t0, ok: false, error: String(e && e.message || e).slice(0, 160) }); if (stats.length > 40) stats.shift();
-        lastErr = e; if (quotaErr(e)) throw e; console.error(model, mode, e);
+        log({ model, mode, ms: Date.now() - t0, ok: false, error: String(e && e.message || e).slice(0, 160) });
+        lastErr = e; console.error(model, mode, e);
+        if (quotaErr(e)) { cfBlockedDay = utcDay(); break cf; } // cota da Cloudflare acabou: não adianta tentar outro modelo dela
       }
     }
   }
+  if (lastErr && quotaErr(lastErr) && hasGroq && !groqFirst && !opt.only) { const out = await tryGroq(groqModels(task)); if (out) return out; }
   if (lastErr) throw lastErr;
   return null;
 }
@@ -432,11 +471,17 @@ async function api(req, env, path, ctx) {
   if (path === "stt" && method === "POST") {
     const buf = await req.arrayBuffer();
     if (!buf.byteLength || buf.byteLength > MAX_AUDIO) return err("Áudio vazio ou longo demais (máx. 30 s).");
+    const viaGroq = async () => json({ text: (await groqStt(env, buf, T.stt)).replace(/\s+/g, " ").trim(), unsure: [] });
+    if (env.GROQ_API_KEY && (env.PREFER_GROQ === "1" || cfBlocked())) { try { return await viaGroq(); } catch (e) { console.error(e); } }
     try {
       const r = await env.AI.run(STT_MODEL, { audio: b64(buf), language: T.stt });
       await meter(env, s.id, "microfone", Math.max(0, buf.byteLength - 44) / 32000 / 60 * STT_PER_MIN);
       return json({ text: String(r && r.text || "").replace(/\s+/g, " ").trim(), unsure: unsureWords(r) });
-    } catch (e) { console.error(e); return err(quotaErr(e) ? QUOTA : "Não consegui entender o áudio. Tente de novo.", quotaErr(e) ? 429 : 502); }
+    } catch (e) {
+      console.error(e);
+      if (quotaErr(e)) { cfBlockedDay = utcDay(); if (env.GROQ_API_KEY) { try { return await viaGroq(); } catch (e2) { console.error(e2); } } }
+      return err(quotaErr(e) ? QUOTA : "Não consegui entender o áudio. Tente de novo.", quotaErr(e) ? 429 : 502);
+    }
   }
   if (path === "tts" && method === "POST") {
     const text = T.plain(String(body.text || "")).trim().slice(0, 600); if (!text) return err("Sem texto.");
@@ -479,7 +524,7 @@ async function api(req, env, path, ctx) {
   if (path === "admin/speed" && method === "GET") {
     if (!isOwner(env, s)) return err("Só o dono.", 403);
     const test = { msgs: [{ role: "ai", text: lang === "ja" ? "こんにちは！ニイです。げんきですか？" : lang === "es" ? "¡Hola! Soy Juan. ¿Cómo estás hoy?" : "Hi! I'm Sam. How's your day going?" }, { role: "me", text: lang === "ja" ? "genki desu, arigatou" : lang === "es" ? "Yo estoy bien, obrigado" : "Its going good, i working a lot today", spoken: false }], topic: "", level: "" };
-    const cand = [...new Set([env.REPLY_MODEL, env.MODEL, "@cf/openai/gpt-oss-20b", "@cf/meta/llama-4-scout-17b-16e-instruct"].filter(Boolean))];
+    const cand = [...new Set([env.REPLY_MODEL, env.MODEL, "@cf/openai/gpt-oss-20b", "@cf/meta/llama-4-scout-17b-16e-instruct"].filter(Boolean)), ...(env.GROQ_API_KEY ? ["groq:openai/gpt-oss-120b", "groq:openai/gpt-oss-20b"] : [])];
     const out = [];
     for (const model of cand) {
       const t0 = Date.now(); let ok = false, sample = "", error = "";
@@ -487,7 +532,7 @@ async function api(req, env, path, ctx) {
       catch (e) { error = String(e && e.message || e).slice(0, 160); }
       out.push({ model, ms: Date.now() - t0, ok, sample, error });
     }
-    return json({ lang, reply_model: env.REPLY_MODEL || env.MODEL, check_model: env.MODEL, results: out, recent: stats.slice(-20) });
+    return json({ lang, reply_model: env.REPLY_MODEL || env.MODEL, check_model: env.MODEL, groq: env.GROQ_API_KEY ? (env.PREFER_GROQ === "1" ? "principal" : "reserva") : "sem chave", cloudflare_bloqueada_hoje: cfBlocked(), results: out, recent: stats.slice(-20) });
   }
   // diagnóstico da voz (só o dono): /api/tts-check?lang=ja mostra o que o servidor conseguiu gerar
   if (path === "tts-check" && method === "GET") {
