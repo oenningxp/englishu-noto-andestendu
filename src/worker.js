@@ -128,7 +128,9 @@ async function useQuota(env, u) {
   const r = await env.DB.prepare("INSERT INTO papo_usage (user_id,day,n) VALUES (?,?,1) ON CONFLICT(user_id,day) DO UPDATE SET n=n+1 RETURNING n").bind(u.id, spDay()).first();
   return !r || r.n <= lim;
 }
-const quotaErr = e => /4006|daily free allocation|neurons|quota|rate limit/i.test(String(e && (e.message || e)));
+// só o erro de cota da Cloudflare (4006); outros erros não podem virar "a cota acabou"
+const quotaErr = e => /\b4006\b|daily free allocation/i.test(String(e && (e.message || e)));
+const errText = e => String(e && (e.message || e) || "").slice(0, 200);
 
 // ---------- IA
 // pede JSON à IA. Tenta os modelos em ordem; para cada um, guarda qual jeito de pedir funcionou (evita repetir erros).
@@ -305,7 +307,7 @@ async function api(req, env, path, ctx) {
     const checkP = learner ? askCheck(env, T, s.nick, st, unsure, s.id).catch(e => { console.error(e); return null; }) : null;
     let r;
     try { r = await askReply(env, T, s.nick, st, { extra, unsure }, s.id); }
-    catch (e) { console.error(e); if (quotaErr(e)) return err(QUOTA, 429); return err(`O ${T.name} não respondeu. Tente de novo.`, 502); }
+    catch (e) { console.error(e); if (quotaErr(e)) return err(QUOTA + (isOwner(env, s) ? " [" + errText(e) + "]" : ""), 429); return err(`O ${T.name} não respondeu. Tente de novo.` + (isOwner(env, s) ? " [" + errText(e) + "]" : ""), 502); }
     if (!r) return err(`O ${T.name} se enrolou na resposta. Tente de novo.`, 502);
     if (r.topic_pt) st.topic = r.topic_pt;
     if (r.level) st.level = r.level;
