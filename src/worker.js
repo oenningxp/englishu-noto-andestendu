@@ -176,9 +176,25 @@ let cfBlockedDay = ""; // dia (UTC) em que a Cloudflare respondeu "cota acabou":
 const cfBlocked = () => cfBlockedDay === utcDay();
 // ordem dos modelos externos grátis: Groq (cada modelo tem a sua cota diária)
 const groqModels = task => task === "sugestões" ? ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"] : ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"];
-// os três idiomas: Groq primeiro, Cloudflare de reserva
+// Gemini (Google): reserva depois da Groq. Modelos Flash-Lite têm a maior cota grátis (por modelo, por dia).
+const geminiModels = env => String(env.GEMINI_MODELS || "gemini-3.5-flash-lite,gemini-3.1-flash-lite").split(",").map(x => x.trim()).filter(Boolean);
+let geminiOffUntil = 0; // chave/modelo recusado (401/403/404): pula o Gemini por 10 minutos
+// os três idiomas: Groq primeiro, depois Gemini, e a Cloudflare de reserva
 function externalList(env, task) {
-  return env.GROQ_API_KEY ? groqModels(task).map(m => ["groq", m]) : [];
+  return [...(env.GROQ_API_KEY ? groqModels(task).map(m => ["groq", m]) : []), ...(env.GEMINI_API_KEY && Date.now() > geminiOffUntil ? geminiModels(env).map(m => ["gemini", m]) : [])];
+}
+async function geminiJson(env, model, system, user, maxTokens, uid) {
+  const r = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+    method: "POST", headers: { Authorization: "Bearer " + env.GEMINI_API_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: maxTokens + 300, temperature: 0.5, response_format: { type: "json_object" } })
+  });
+  const d = await r.json().catch(() => ({}));
+  const err = Array.isArray(d) ? d[0] && d[0].error : d.error;
+  if (r.status === 401 || r.status === 403) geminiOffUntil = Date.now() + 10 * 60000;
+  if (!r.ok) throw new Error(`gemini ${r.status}: ${String((err && err.message) || "").slice(0, 160)}`);
+  const content = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || "";
+  await meterGroq(env, uid, "gemini:" + model, 1); // o limite grátis do Gemini é contado em pedidos por dia
+  return content;
 }
 const stripThink = t => String(t || "").replace(/<think>[\s\S]*?<\/think>/g, ""); // modelos que "pensam em voz alta" (Qwen)
 // medidor da Groq: tokens por modelo (texto) e segundos de áudio (Whisper), por pessoa e por dia
@@ -221,13 +237,13 @@ async function aiJson(env, system, user, schema, parse, maxTokens = 1400, opt = 
     for (const [prov, gm] of list) {
       const t0 = Date.now();
       try {
-        const txt = await groqJson(env, gm, system, user, maxTokens, effort, opt.uid);
+        const txt = prov === "gemini" ? await geminiJson(env, gm, system, user, maxTokens, opt.uid) : await groqJson(env, gm, system, user, maxTokens, effort, opt.uid);
         const out = parse(txt); log({ model: prov + ":" + gm, ms: Date.now() - t0, ok: !!out }); if (out) return out;
       } catch (e) { log({ model: prov + ":" + gm, ms: Date.now() - t0, ok: false, error: String(e && e.message || e).slice(0, 160) }); console.error(prov, gm, e); }
     }
     return null;
   };
-  if (opt.only && /^groq:/.test(opt.only)) { const i = opt.only.indexOf(":"); return tryGroq([[opt.only.slice(0, i), opt.only.slice(i + 1)]]); }
+  if (opt.only && /^(groq|gemini):/.test(opt.only)) { const i = opt.only.indexOf(":"); return tryGroq([[opt.only.slice(0, i), opt.only.slice(i + 1)]]); }
   const groqFirst = hasGroq && !opt.only && (env.PREFER_GROQ === "1" || cfBlocked());
   if (groqFirst) { const out = await tryGroq(ext); if (out) return out; }
   const models = opt.only ? [opt.only] : [...new Set([...(opt.models || []), env.MODEL, env.FALLBACK_MODEL].filter(Boolean))];
@@ -548,6 +564,8 @@ async function api(req, env, path, ctx) {
     }
     // limites do plano grátis da Groq (por modelo, por dia); os números exatos da sua conta ficam no console da Groq
     const groqLimits = { "openai/gpt-oss-120b": { amount: 200000, calls: 1000, unit: "tokens" }, "qwen/qwen3.8-27b": { amount: 200000, calls: 1000, unit: "tokens" }, "openai/gpt-oss-20b": { amount: 200000, calls: 1000, unit: "tokens" }, "whisper-large-v3-turbo": { amount: 28800, calls: 2000, unit: "segundos de áudio" } };
+    // Gemini: cota grátis em pedidos por dia, por modelo (Flash-Lite: 500)
+    for (const m of geminiModels(env)) groqLimits["gemini:" + m] = { amount: 500, calls: 500, unit: "pedidos" };
     return json({ today: utcDay(), free: FREE_NEURONS, since, rows, groq, groqLimits, groqMode: env.GROQ_API_KEY ? (env.PREFER_GROQ === "1" ? "principal" : "reserva") : "sem chave", names, limit: parseInt(env.DAILY_LIMIT || "40", 10) || 40 });
   }
   // velocidade dos modelos (só o dono): /api/admin/speed?lang=en mede cada candidato com a mesma conversa de teste
@@ -563,7 +581,7 @@ async function api(req, env, path, ctx) {
       if (!ok && !error) { const l = [...stats].reverse().find(x => x.model === model && x.error); if (l) error = l.error; }
       out.push({ model, ms: Date.now() - t0, ok, sample, error });
     }
-    return json({ lang, reply_model: env.REPLY_MODEL || env.MODEL, check_model: env.MODEL, groq: env.GROQ_API_KEY ? (env.PREFER_GROQ === "1" ? "principal" : "reserva") : "sem chave", ordem_deste_idioma: [...externalList(env, "resposta", lang).map(([p, m]) => p + ":" + m), "cloudflare"], cloudflare_bloqueada_hoje: cfBlocked(), results: out, recent: stats.slice(-20) });
+    return json({ lang, reply_model: env.REPLY_MODEL || env.MODEL, check_model: env.MODEL, groq: env.GROQ_API_KEY ? (env.PREFER_GROQ === "1" ? "principal" : "reserva") : "sem chave", gemini: env.GEMINI_API_KEY ? "ligado (depois da Groq)" : "sem chave", ordem_deste_idioma: [...externalList(env, "resposta", lang).map(([p, m]) => p + ":" + m), "cloudflare"], cloudflare_bloqueada_hoje: cfBlocked(), results: out, recent: stats.slice(-20) });
   }
   // diagnóstico da voz (só o dono): /api/tts-check?lang=ja mostra o que o servidor conseguiu gerar
   if (path === "tts-check" && method === "GET") {

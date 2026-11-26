@@ -75,7 +75,7 @@ function render(d) {
   // ---- Groq (principal)
   const gToday = groq.filter(r => r.day === today);
   const gModel = {}; for (const r of gToday) { const m = gModel[r.model] || (gModel[r.model] = { amount: 0, calls: 0 }); m.amount += r.amount; m.calls += r.calls; }
-  const gUser = new Map(); for (const r of gToday) { const u = gUser.get(r.user_id) || { id: r.user_id, tokens: 0, audio: 0, calls: 0 }; if (r.model.startsWith("whisper")) u.audio += r.amount; else u.tokens += r.amount; u.calls += r.calls; gUser.set(r.user_id, u); }
+  const gUser = new Map(); for (const r of gToday) { const u = gUser.get(r.user_id) || { id: r.user_id, tokens: 0, audio: 0, gemini: 0, calls: 0 }; if (r.model.startsWith("whisper")) u.audio += r.amount; else if (r.model.startsWith("gemini:")) u.gemini += r.calls; else u.tokens += r.amount; u.calls += r.calls; gUser.set(r.user_id, u); }
   // ---- Cloudflare (reserva)
   const todayRows = rows.filter(r => r.day === today);
   const byUser = new Map();
@@ -85,7 +85,7 @@ function render(d) {
   // ---- pessoas (as duas)
   const ids = [...new Set([...gUser.keys(), ...byUser.keys()])];
   const tokLimit = (groqLimits["openai/gpt-oss-120b"] || { amount: 200000 }).amount;
-  const people = ids.map(id => ({ id, g: gUser.get(id) || { tokens: 0, audio: 0, calls: 0 }, c: byUser.get(id) || { neurons: 0, calls: 0, tasks: {} } }))
+  const people = ids.map(id => ({ id, g: gUser.get(id) || { tokens: 0, audio: 0, gemini: 0, calls: 0 }, c: byUser.get(id) || { neurons: 0, calls: 0, tasks: {} } }))
     .sort((a, b) => (b.g.tokens / tokLimit + b.c.neurons / free) - (a.g.tokens / tokLimit + a.c.neurons / free));
   const color = new Map(people.map((p, i) => [p.id, COLORS[i % COLORS.length]]));
   const tone = p => p >= 90 ? "var(--red)" : p >= 60 ? "var(--warn)" : "var(--ok)";
@@ -98,10 +98,10 @@ function render(d) {
   $("#out").innerHTML = `
   <p class="sub">Hoje: dia ${esc(today.split("-").reverse().join("/"))} (UTC) · renova em ${untilReset()}, às 21h de Brasília.</p>
   <section class="hero">
-    <span class="sub">Groq: ${esc(groqMode === "principal" ? "principal (usada primeiro)" : groqMode === "reserva" ? "reserva (só quando a Cloudflare acaba)" : "sem chave cadastrada")}</span>
+    <span class="sub">Groq e Gemini: ${esc(groqMode === "principal" ? "Groq principal, Gemini logo depois" : groqMode === "reserva" ? "reserva (só quando a Cloudflare acaba)" : "sem chave cadastrada")}</span>
     <div class="big" style="color:${tone(gMax)}">${pctTxt(gMax)}<small>do modelo mais usado</small></div>
     <div class="days">${Object.entries(groqLimits).map(([m, l]) => { const u = gModel[m] || { amount: 0, calls: 0 }, p = pct(u.amount, l.amount);
-      return `<div class="day gm"><span>${esc(m.replace("openai/", "").replace("-large-v3-turbo", " (microfone)"))}</span><div class="mini"><i style="width:${Math.min(100, p)}%;background:${tone(p)}"></i></div><span class="n">${pctTxt(p)}</span><span class="sub gm2">${fmt(u.amount)} de ${fmt(l.amount)} ${esc(l.unit)} · ${u.calls} de ${fmt(l.calls)} pedidos</span></div>`; }).join("")}</div>
+      return `<div class="day gm"><span>${esc(m.replace("openai/", "").replace("qwen/", "").replace("-large-v3-turbo", " (microfone)").replace("gemini:", "Gemini "))}</span><div class="mini"><i style="width:${Math.min(100, p)}%;background:${tone(p)}"></i></div><span class="n">${pctTxt(p)}</span><span class="sub gm2">${fmt(u.amount)} de ${fmt(l.amount)} ${esc(l.unit)} · ${u.calls} de ${fmt(l.calls)} pedidos</span></div>`; }).join("")}</div>
   </section>
   <section class="hero">
     <span class="sub">Cloudflare: ${groqMode === "principal" ? "reserva (entra se a Groq falhar)" : "principal"}</span>
@@ -113,7 +113,7 @@ function render(d) {
     ${people.length ? `<table><thead><tr><th>Pessoa</th><th class="n">Groq</th><th class="n">Cloudflare</th><th class="n">Pedidos</th></tr></thead><tbody>
     ${people.map(p => { const n = name(p.id), gp = pct(p.g.tokens, tokLimit), cp = pct(p.c.neurons, free);
       const top = Object.entries(p.c.tasks).sort((a, b) => b[1] - a[1]).map(([t, v]) => `${esc(t)} ${pctTxt(pct(v, free))}`).join(" · ");
-      return `<tr><td class="who"><b><i class="dot" style="background:${color.get(p.id)}"></i>${esc(n.nick)}${n.owner ? " (você)" : ""}</b><span>@${esc(n.username)}</span>${p.g.tokens || p.g.audio ? `<div class="tasks">Groq: ${fmt(p.g.tokens)} tokens${p.g.audio ? ` · ${fmt(p.g.audio)} s de áudio` : ""}</div>` : ""}${top ? `<div class="tasks">Cloudflare: ${top}</div>` : ""}</td><td class="n"><b>${pctTxt(gp)}</b></td><td class="n"><b>${pctTxt(cp)}</b></td><td class="n">${p.g.calls + p.c.calls}</td></tr>`; }).join("")}
+      return `<tr><td class="who"><b><i class="dot" style="background:${color.get(p.id)}"></i>${esc(n.nick)}${n.owner ? " (você)" : ""}</b><span>@${esc(n.username)}</span>${p.g.tokens || p.g.audio ? `<div class="tasks">Groq: ${fmt(p.g.tokens)} tokens${p.g.audio ? ` · ${fmt(p.g.audio)} s de áudio` : ""}</div>` : ""}${p.g.gemini ? `<div class="tasks">Gemini: ${p.g.gemini} pedidos</div>` : ""}${top ? `<div class="tasks">Cloudflare: ${top}</div>` : ""}</td><td class="n"><b>${pctTxt(gp)}</b></td><td class="n"><b>${pctTxt(cp)}</b></td><td class="n">${p.g.calls + p.c.calls}</td></tr>`; }).join("")}
     </tbody></table><p class="sub">Groq: % do limite diário de tokens do gpt-oss-120b (${fmt(tokLimit)}). Cloudflare: % dos ${fmt(free)} neurons grátis.</p>` : `<p class="sub">Ninguém usou a IA hoje ainda.</p>`}
   </section>
   <section>

@@ -24,6 +24,8 @@
     // Groq (reserva grátis): a chave vai como SEGREDO no painel da Cloudflare, com o nome GROQ_API_KEY (nunca aqui).
     // "1" = usar a Groq primeiro (mais rápida); "0" = só quando a cota da Cloudflare acabar.
     "PREFER_GROQ": "1",
+    // Gemini (reserva depois da Groq): chave como SEGREDO GEMINI_API_KEY. Modelos separados por vírgula.
+    "GEMINI_MODELS": "gemini-3.5-flash-lite,gemini-3.1-flash-lite",
     // Pedidos à IA por dia para cada amigo (protege a cota grátis da Cloudflare).
     "DAILY_LIMIT": "100"
   },

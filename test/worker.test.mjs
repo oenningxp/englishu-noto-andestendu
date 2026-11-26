@@ -142,6 +142,7 @@ assert.ok(Object.values(us.names).some(n => n.username === "isabella"), "painel 
     const body = JSON.parse(init.body);
     if (body.response_format) assert.equal(body.response_format.type, "json_object");
     if (String(url).includes("groq") && globalThis.__groqDown) return Response.json({ error: { message: "rate limit" } }, { status: 429 });
+    if (String(url).includes("generativelanguage")) return Response.json({ choices: [{ message: { content: '{"reply":"Hi from Gemini!","reply_pt":"Oi do Gemini!","topic_pt":"Teste","level":"A2","corrections":[],"corrected":""}' } }] });
     if (String(url).includes("groq") && body.model.includes("qwen") && body.response_format) return Response.json({ error: { message: "Failed to generate JSON. Please adjust your prompt." } }, { status: 400 });
     return Response.json({ choices: [{ message: { content: '{"reply":"Hi from Groq!","reply_pt":"Oi da Groq!","topic_pt":"Teste","level":"A2","corrections":[],"corrected":""}' } }] });
   };
@@ -150,12 +151,17 @@ assert.ok(Object.values(us.names).some(n => n.username === "isabella"), "painel 
   await callG("cmd", { cmd: "new", force: true }); await callG("chat", {});
   const g = await callG("chat", { text: "hello" });
   assert.equal(g.status, 200); assert.equal(g.data.state.msgs.at(-1).text, "Hi from Groq!", "resposta veio da Groq");
+  // Groq no limite: usa o Gemini
+  globalThis.__groqDown = true;
+  const rGm = await worker.fetch(new Request("https://papo.test/api/chat", { method: "POST", headers: { Origin: "https://papo.test", Cookie: cookie }, body: JSON.stringify({ text: "hello gemini" }) }), { ...envG, GEMINI_API_KEY: "g" });
+  assert.equal((await rGm.json()).state.msgs.at(-1).text, "Hi from Gemini!", "Groq no limite: usa o Gemini");
+  globalThis.__groqDown = false;
   // Qwen: sem o formato exigido, tenta de novo e funciona
   const q = await worker.fetch(new Request("https://papo.test/api/admin/speed", { headers: { Cookie: cookie } }), { ...envG, GROQ_API_KEY: "k" });
   const qr = (await q.json()).results.find(x => x.model === "groq:qwen/qwen3.8-27b");
   assert.equal(qr.ok, true, "Qwen funciona na segunda tentativa");
   const gs = await callG("stt", new Uint8Array(100), true); assert.equal(gs.data.text, "hello from groq", "microfone pela Groq");
-  assert.ok(groqCalls.every(u => u.startsWith("https://api.groq.com/")));
+  assert.ok(groqCalls.every(u => u.startsWith("https://api.groq.com/") || u.startsWith("https://generativelanguage.googleapis.com/")));
   const gu = (await call("admin/usage")).data;
   assert.ok(gu.groq.some(r => r.model === "openai/gpt-oss-120b" && r.amount > 0), "medidor da Groq anotou tokens");
   assert.ok(gu.groq.some(r => r.model === "whisper-large-v3-turbo" && r.amount >= 10), "medidor da Groq anotou o áudio");
