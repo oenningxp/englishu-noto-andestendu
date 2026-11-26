@@ -270,10 +270,10 @@ async function speak(text) {
     speechSynthesis.speak(u); await done;
   } catch {}
 }
-// modo mãos livres: se a pessoa falou pelo microfone, ele abre sozinho depois que o Sam termina de falar
+// fala do professor (antes abria o microfone sozinho depois; desligado a pedido)
 async function samSays(text) {
   await speak(text);
-  if (handsFree && !rec && !busy && !waiting && document.visibilityState === "visible" && !$("#app").hidden) startRec("chat", true);
+  // o microfone não abre mais sozinho: a pessoa toca nele quando quiser falar
 }
 
 // ---------- microfone: grava, vira WAV 16 kHz e manda para o Whisper
