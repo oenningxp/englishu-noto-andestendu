@@ -479,7 +479,7 @@ async function api(req, env, path, ctx) {
   if (path === "admin/speed" && method === "GET") {
     if (!isOwner(env, s)) return err("Só o dono.", 403);
     const test = { msgs: [{ role: "ai", text: lang === "ja" ? "こんにちは！ニイです。げんきですか？" : lang === "es" ? "¡Hola! Soy Juan. ¿Cómo estás hoy?" : "Hi! I'm Sam. How's your day going?" }, { role: "me", text: lang === "ja" ? "genki desu, arigatou" : lang === "es" ? "Yo estoy bien, obrigado" : "Its going good, i working a lot today", spoken: false }], topic: "", level: "" };
-    const cand = [...new Set([env.REPLY_MODEL, env.MODEL, "@cf/openai/gpt-oss-20b", "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/meta/llama-4-scout-17b-16e-instruct"].filter(Boolean))];
+    const cand = [...new Set([env.REPLY_MODEL, env.MODEL, "@cf/openai/gpt-oss-20b", "@cf/meta/llama-4-scout-17b-16e-instruct"].filter(Boolean))];
     const out = [];
     for (const model of cand) {
       const t0 = Date.now(); let ok = false, sample = "", error = "";
