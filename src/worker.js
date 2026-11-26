@@ -203,13 +203,18 @@ async function meterGroq(env, uid, model, amount) {
   try { await env.DB.prepare("INSERT INTO papo_groq (user_id,day,model,amount,calls) VALUES (?,?,?,?,1) ON CONFLICT(user_id,day,model) DO UPDATE SET amount=amount+excluded.amount, calls=calls+1").bind(uid, utcDay(), model, amount).run(); }
   catch (e) { console.error("meterGroq", e); }
 }
-async function groqJson(env, model, system, user, maxTokens, effort, uid) {
+async function groqJson(env, model, system, user, maxTokens, effort, uid, strict = true) {
   const r = await fetch(GROQ_URL + "/chat/completions", {
     method: "POST", headers: { Authorization: "Bearer " + env.GROQ_API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_completion_tokens: maxTokens + 1000, temperature: 0.5, response_format: { type: "json_object" }, ...(/gpt-oss/.test(model) ? { reasoning_effort: effort } : {}) })
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_completion_tokens: maxTokens + 1000, temperature: 0.5, ...(strict ? { response_format: { type: "json_object" } } : {}), ...(/gpt-oss/.test(model) ? { reasoning_effort: effort } : {}) })
   });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`groq ${r.status}: ${(d.error && d.error.message || "").slice(0, 160)}`);
+  if (!r.ok) {
+    const msg = (d.error && d.error.message) || "";
+    // alguns modelos (Qwen) às vezes escapam do formato exigido: tenta de novo sem a exigência e lê o JSON do texto
+    if (strict && r.status === 400 && /json/i.test(msg)) return groqJson(env, model, system, user, maxTokens, effort, uid, false);
+    throw new Error(`groq ${r.status}: ${msg.slice(0, 160)}`);
+  }
   const content = stripThink((d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || "");
   await meterGroq(env, uid, model, (d.usage && d.usage.total_tokens) || Math.ceil((system.length + user.length + content.length) / 3.5));
   return content;
