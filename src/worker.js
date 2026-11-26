@@ -219,10 +219,32 @@ async function groqJson(env, model, system, user, maxTokens, effort, uid, strict
   await meterGroq(env, uid, model, (d.usage && d.usage.total_tokens) || Math.ceil((system.length + user.length + content.length) / 3.5));
   return content;
 }
+// dica inicial do Whisper: puxa a escrita pro japonês (sem ela ele às vezes "ouve" inglês)
+const STT_PROMPT = { ja: "こんにちは。わたしは日本語を勉強しています。" };
+// Nii ouve pelo Gemini (Google): o Whisper (OpenAI) confundia o japonês do aluno com inglês
+const GEMINI_STT = "Você transcreve o áudio de um aluno brasileiro iniciante falando JAPONÊS. Escreva exatamente o que ele disse, em japonês (hiragana/katakana/kanji), mesmo com sotaque ou erros: não corrija, não traduza, não complete. Palavras em português que ele disser, escreva em português. Se não der para entender nada, responda vazio. Responda só com a transcrição, sem aspas nem comentários.";
+async function geminiStt(env, buf, uid) {
+  let last;
+  for (const model of geminiModels(env)) {
+    try {
+      const r = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+        method: "POST", headers: { Authorization: "Bearer " + env.GEMINI_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, temperature: 0, max_tokens: 300, messages: [{ role: "system", content: GEMINI_STT }, { role: "user", content: [{ type: "input_audio", input_audio: { data: b64(buf), format: "wav" } }] }] })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 401 || r.status === 403) geminiOffUntil = Date.now() + 10 * 60000;
+      if (!r.ok) { const e = Array.isArray(d) ? d[0] && d[0].error : d.error; throw new Error(`gemini ${r.status}: ${String((e && e.message) || "").slice(0, 160)}`); }
+      await meterGroq(env, uid, "gemini:" + model, 1);
+      return String((d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || "").replace(/^["「“]|["」”]$/g, "").trim();
+    } catch (e) { last = e; console.error(e); if (Date.now() < geminiOffUntil) break; }
+  }
+  throw last || new Error("gemini stt");
+}
 async function groqStt(env, buf, language, uid) {
   const fd = new FormData();
   fd.append("file", new Blob([buf], { type: "audio/wav" }), "audio.wav");
   fd.append("model", "whisper-large-v3-turbo"); fd.append("language", language); fd.append("response_format", "json");
+  if (STT_PROMPT[language]) fd.append("prompt", STT_PROMPT[language]);
   const r = await fetch(GROQ_URL + "/audio/transcriptions", { method: "POST", headers: { Authorization: "Bearer " + env.GROQ_API_KEY }, body: fd });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(`groq ${r.status}: ${(d.error && d.error.message || "").slice(0, 160)}`);
@@ -511,9 +533,10 @@ async function api(req, env, path, ctx) {
     const buf = await req.arrayBuffer();
     if (!buf.byteLength || buf.byteLength > MAX_AUDIO) return err("Áudio vazio ou longo demais (máx. 30 s).");
     const viaGroq = async () => json({ text: (await groqStt(env, buf, T.stt, s.id)).replace(/\s+/g, " ").trim(), unsure: [] });
+    if (lang === "ja" && env.GEMINI_API_KEY && Date.now() > geminiOffUntil) { try { return json({ text: (await geminiStt(env, buf, s.id)).replace(/\s+/g, " ").trim(), unsure: [] }); } catch (e) { console.error(e); } }
     if (env.GROQ_API_KEY && (env.PREFER_GROQ === "1" || cfBlocked())) { try { return await viaGroq(); } catch (e) { console.error(e); } }
     try {
-      const r = await env.AI.run(STT_MODEL, { audio: b64(buf), language: T.stt });
+      const r = await env.AI.run(STT_MODEL, { audio: b64(buf), language: T.stt, ...(STT_PROMPT[T.stt] ? { initial_prompt: STT_PROMPT[T.stt] } : {}) });
       await meter(env, s.id, "microfone", Math.max(0, buf.byteLength - 44) / 32000 / 60 * STT_PER_MIN);
       return json({ text: String(r && r.text || "").replace(/\s+/g, " ").trim(), unsure: unsureWords(r) });
     } catch (e) {
