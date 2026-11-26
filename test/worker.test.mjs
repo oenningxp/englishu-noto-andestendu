@@ -150,6 +150,9 @@ assert.ok(Object.values(us.names).some(n => n.username === "isabella"), "painel 
   assert.equal(g.status, 200); assert.equal(g.data.state.msgs.at(-1).text, "Hi from Groq!", "resposta veio da Groq");
   const gs = await callG("stt", new Uint8Array(100), true); assert.equal(gs.data.text, "hello from groq", "microfone pela Groq");
   assert.ok(groqCalls.every(u => u.startsWith("https://api.groq.com/")));
+  const gu = (await call("admin/usage")).data;
+  assert.ok(gu.groq.some(r => r.model === "openai/gpt-oss-120b" && r.amount > 0), "medidor da Groq anotou tokens");
+  assert.ok(gu.groq.some(r => r.model === "whisper-large-v3-turbo" && r.amount >= 10), "medidor da Groq anotou o áudio");
   globalThis.fetch = realFetch;
 }
 

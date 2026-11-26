@@ -33,6 +33,9 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .days{display:grid;gap:8px}
 .day{display:grid;grid-template-columns:90px 1fr 64px;gap:10px;align-items:center;font-size:14px}
 .day .mini{height:12px}
+.two{display:grid;gap:3px}.dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}
+.day.gm{grid-template-columns:110px 1fr 64px}.gm2{grid-column:1/-1;margin-top:-4px}
+section.hero+section.hero{margin-top:14px}
 .legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--mute)}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 .msg{padding:14px;border-radius:12px;background:var(--soft)}
@@ -67,41 +70,60 @@ async function load() {
   } catch { out.textContent = "Não consegui carregar agora. Tente de novo."; }
 }
 function render(d) {
-  const { rows, names, free, today } = d;
+  const { rows, names, free, today, groq = [], groqLimits = {}, groqMode } = d;
+  const name = id => names[id] || { nick: "?", username: "?" };
+  // ---- Groq (principal)
+  const gToday = groq.filter(r => r.day === today);
+  const gModel = {}; for (const r of gToday) { const m = gModel[r.model] || (gModel[r.model] = { amount: 0, calls: 0 }); m.amount += r.amount; m.calls += r.calls; }
+  const TXT = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"];
+  const gUser = new Map(); for (const r of gToday) { const u = gUser.get(r.user_id) || { id: r.user_id, tokens: 0, audio: 0, calls: 0 }; if (TXT.includes(r.model)) u.tokens += r.amount; else u.audio += r.amount; u.calls += r.calls; gUser.set(r.user_id, u); }
+  // ---- Cloudflare (reserva)
   const todayRows = rows.filter(r => r.day === today);
   const byUser = new Map();
   for (const r of todayRows) { const u = byUser.get(r.user_id) || { id: r.user_id, neurons: 0, calls: 0, tasks: {} }; u.neurons += r.neurons; u.calls += r.calls; u.tasks[r.task] = (u.tasks[r.task] || 0) + r.neurons; byUser.set(r.user_id, u); }
-  const users = [...byUser.values()].sort((a, b) => b.neurons - a.neurons);
-  const total = users.reduce((a, u) => a + u.neurons, 0), totalPct = pct(total, free);
-  const color = new Map(users.map((u, i) => [u.id, COLORS[i % COLORS.length]]));
-  const name = id => names[id] || { nick: "?", username: "?" };
-  const byTask = {}; for (const r of todayRows) byTask[r.task] = (byTask[r.task] || 0) + r.neurons;
+  const cfUsers = [...byUser.values()];
+  const total = cfUsers.reduce((a, u) => a + u.neurons, 0), totalPct = pct(total, free);
+  // ---- pessoas (as duas)
+  const ids = [...new Set([...gUser.keys(), ...byUser.keys()])];
+  const tokLimit = (groqLimits["openai/gpt-oss-120b"] || { amount: 200000 }).amount;
+  const people = ids.map(id => ({ id, g: gUser.get(id) || { tokens: 0, audio: 0, calls: 0 }, c: byUser.get(id) || { neurons: 0, calls: 0, tasks: {} } }))
+    .sort((a, b) => (b.g.tokens / tokLimit + b.c.neurons / free) - (a.g.tokens / tokLimit + a.c.neurons / free));
+  const color = new Map(people.map((p, i) => [p.id, COLORS[i % COLORS.length]]));
+  const tone = p => p >= 90 ? "var(--red)" : p >= 60 ? "var(--warn)" : "var(--ok)";
+  const gMax = Math.max(0, ...Object.entries(groqLimits).map(([m, l]) => pct((gModel[m] || { amount: 0 }).amount, l.amount)));
+  // ---- dias
   const daysMap = {}; for (const r of rows) daysMap[r.day] = (daysMap[r.day] || 0) + r.neurons;
-  const days = Object.keys(daysMap).sort().reverse();
+  const gDays = {}; for (const r of groq) if (r.model === "openai/gpt-oss-120b") gDays[r.day] = (gDays[r.day] || 0) + r.amount;
+  const days = [...new Set([...Object.keys(daysMap), ...Object.keys(gDays)])].sort().reverse();
   $("#out").className = "";
   $("#out").innerHTML = `
+  <p class="sub">Hoje: dia ${esc(today.split("-").reverse().join("/"))} (UTC) · renova em ${untilReset()}, às 21h de Brasília.</p>
   <section class="hero">
-    <span class="sub">Cota grátis de hoje (dia ${esc(today.split("-").reverse().join("/"))} em UTC · renova em ${untilReset()}, às 21h de Brasília)</span>
-    <div class="big" style="color:${totalPct >= 90 ? "var(--red)" : totalPct >= 60 ? "var(--warn)" : "var(--ok)"}">${pctTxt(totalPct)}<small>${fmt(total)} de ${fmt(free)} neurons</small></div>
-    <div class="bar" role="img" aria-label="Uso por pessoa">${users.map(u => `<i style="width:${Math.min(100, pct(u.neurons, free))}%;background:${color.get(u.id)}" title="${esc(name(u.id).nick)}"></i>`).join("")}</div>
-    <div class="legend">${users.map(u => `<span><i style="background:${color.get(u.id)}"></i>${esc(name(u.id).nick)}</span>`).join("") || "Ninguém usou a IA hoje ainda."}</div>
+    <span class="sub">Groq: ${esc(groqMode === "principal" ? "principal (usada primeiro)" : groqMode === "reserva" ? "reserva (só quando a Cloudflare acaba)" : "sem chave cadastrada")}</span>
+    <div class="big" style="color:${tone(gMax)}">${pctTxt(gMax)}<small>do modelo mais usado</small></div>
+    <div class="days">${Object.entries(groqLimits).map(([m, l]) => { const u = gModel[m] || { amount: 0, calls: 0 }, p = pct(u.amount, l.amount);
+      return `<div class="day gm"><span>${esc(m.replace("openai/", "").replace("-large-v3-turbo", " (microfone)"))}</span><div class="mini"><i style="width:${Math.min(100, p)}%;background:${tone(p)}"></i></div><span class="n">${pctTxt(p)}</span><span class="sub gm2">${fmt(u.amount)} de ${fmt(l.amount)} ${esc(l.unit)} · ${u.calls} de ${fmt(l.calls)} pedidos</span></div>`; }).join("")}</div>
+  </section>
+  <section class="hero">
+    <span class="sub">Cloudflare: ${groqMode === "principal" ? "reserva (entra se a Groq falhar)" : "principal"}</span>
+    <div class="big" style="color:${tone(totalPct)}">${pctTxt(totalPct)}<small>${fmt(total)} de ${fmt(free)} neurons</small></div>
+    <div class="bar" role="img" aria-label="Uso da Cloudflare por pessoa">${cfUsers.map(u => `<i style="width:${Math.min(100, pct(u.neurons, free))}%;background:${color.get(u.id)}" title="${esc(name(u.id).nick)}"></i>`).join("")}</div>
   </section>
   <section>
     <h2>Por pessoa (hoje)</h2>
-    ${users.length ? `<table><thead><tr><th>Pessoa</th><th class="n">% da cota</th><th class="hide-s"></th><th class="n hide-s">Neurons</th><th class="n">Pedidos</th></tr></thead><tbody>
-    ${users.map(u => { const n = name(u.id), p = pct(u.neurons, free), top = Object.entries(u.tasks).sort((a, b) => b[1] - a[1]).map(([t, v]) => `${esc(t)} ${pctTxt(pct(v, free))}`).join(" · ");
-      return `<tr><td class="who"><b>${esc(n.nick)}${n.owner ? " (você)" : ""}</b><span>@${esc(n.username)}</span><div class="tasks">${top}</div></td><td class="n"><b>${pctTxt(p)}</b></td><td class="hide-s"><div class="mini"><i style="width:${Math.min(100, p)}%;background:${color.get(u.id)}"></i></div></td><td class="n hide-s">${fmt(u.neurons)}</td><td class="n">${u.calls}</td></tr>`; }).join("")}
-    </tbody></table>` : `<p class="sub">Sem uso hoje.</p>`}
-  </section>
-  <section>
-    <h2>Por tipo de pedido (hoje)</h2>
-    <div class="days">${Object.entries(byTask).sort((a, b) => b[1] - a[1]).map(([t, v]) => `<div class="day"><span>${esc(t)}</span><div class="mini"><i style="width:${Math.min(100, pct(v, free))}%"></i></div><span class="n">${pctTxt(pct(v, free))}</span></div>`).join("") || '<p class="sub">Sem uso hoje.</p>'}</div>
+    ${people.length ? `<table><thead><tr><th>Pessoa</th><th class="n">Groq</th><th class="n">Cloudflare</th><th class="n">Pedidos</th></tr></thead><tbody>
+    ${people.map(p => { const n = name(p.id), gp = pct(p.g.tokens, tokLimit), cp = pct(p.c.neurons, free);
+      const top = Object.entries(p.c.tasks).sort((a, b) => b[1] - a[1]).map(([t, v]) => `${esc(t)} ${pctTxt(pct(v, free))}`).join(" · ");
+      return `<tr><td class="who"><b><i class="dot" style="background:${color.get(p.id)}"></i>${esc(n.nick)}${n.owner ? " (você)" : ""}</b><span>@${esc(n.username)}</span>${p.g.tokens ? `<div class="tasks">Groq: ${fmt(p.g.tokens)} tokens${p.g.audio ? ` · ${fmt(p.g.audio)} s de áudio` : ""}</div>` : ""}${top ? `<div class="tasks">Cloudflare: ${top}</div>` : ""}</td><td class="n"><b>${pctTxt(gp)}</b></td><td class="n"><b>${pctTxt(cp)}</b></td><td class="n">${p.g.calls + p.c.calls}</td></tr>`; }).join("")}
+    </tbody></table><p class="sub">Groq: % do limite diário de tokens do gpt-oss-120b (${fmt(tokLimit)}). Cloudflare: % dos ${fmt(free)} neurons grátis.</p>` : `<p class="sub">Ninguém usou a IA hoje ainda.</p>`}
   </section>
   <section>
     <h2>Últimos 7 dias</h2>
-    <div class="days">${days.map(day => `<div class="day"><span>${esc(day.split("-").reverse().slice(0, 2).join("/"))}</span><div class="mini"><i style="width:${Math.min(100, pct(daysMap[day], free))}%;background:${pct(daysMap[day], free) >= 100 ? "var(--red)" : "var(--blue)"}"></i></div><span class="n">${pctTxt(pct(daysMap[day], free))}</span></div>`).join("") || '<p class="sub">Ainda sem histórico.</p>'}</div>
+    <div class="days">${days.map(day => { const g = pct(gDays[day] || 0, tokLimit), c = pct(daysMap[day] || 0, free);
+      return `<div class="day"><span>${esc(day.split("-").reverse().slice(0, 2).join("/"))}</span><div class="two"><div class="mini" title="Groq"><i style="width:${Math.min(100, g)}%;background:${tone(g)}"></i></div><div class="mini" title="Cloudflare"><i style="width:${Math.min(100, c)}%;background:${c >= 100 ? "var(--red)" : "var(--blue)"}"></i></div></div><span class="n">${pctTxt(g)} · ${pctTxt(c)}</span></div>`; }).join("") || '<p class="sub">Ainda sem histórico.</p>'}</div>
+    <p class="sub">Em cada dia: barra de cima = Groq (gpt-oss-120b), de baixo = Cloudflare.</p>
   </section>
-  <p class="sub">Os números são uma estimativa do app, calculada pelo tamanho de cada pedido e pela tabela de preços da Cloudflare. O valor oficial está no painel da Cloudflare (Workers AI). A medição começou hoje: o uso de antes não aparece. Os dias seguem o relógio da Cloudflare (UTC), que vira às 21h de Brasília.</p>`;
+  <p class="sub">Tudo aqui é estimativa do app. Os números oficiais ficam no console da Groq (console.groq.com, em Limits/Usage) e no painel da Cloudflare (Workers AI). Os limites da Groq usados aqui são os do plano grátis publicados por ela; a sua conta pode ter números um pouco diferentes.</p>`;
 }
 $("#reload").addEventListener("click", load);
 load(); setInterval(load, 30000);

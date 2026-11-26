@@ -59,6 +59,7 @@ async function ensureTables(env) {
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_state (user_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_chats (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_usage (user_id TEXT NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (user_id, day))"),
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_groq (user_id TEXT NOT NULL, day TEXT NOT NULL, model TEXT NOT NULL, amount REAL NOT NULL, calls INTEGER NOT NULL, PRIMARY KEY (user_id, day, model))"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_neurons (user_id TEXT NOT NULL, day TEXT NOT NULL, task TEXT NOT NULL, neurons REAL NOT NULL, calls INTEGER NOT NULL, PRIMARY KEY (user_id, day, task))"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS login_fails (k TEXT PRIMARY KEY, n INTEGER NOT NULL, since INTEGER NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS papo_users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, nick TEXT NOT NULL, pass_hash TEXT NOT NULL, pass_salt TEXT NOT NULL, fail_count INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)")
@@ -174,22 +175,31 @@ const GROQ_URL = "https://api.groq.com/openai/v1";
 let cfBlockedDay = ""; // dia (UTC) em que a Cloudflare respondeu "cota acabou": pula direto pra Groq até virar o dia
 const cfBlocked = () => cfBlockedDay === utcDay();
 const groqModels = task => task === "sugestões" ? ["openai/gpt-oss-20b", "openai/gpt-oss-120b"] : ["openai/gpt-oss-120b", "openai/gpt-oss-20b"];
-async function groqJson(env, model, system, user, maxTokens, effort) {
+// medidor da Groq: tokens por modelo (texto) e segundos de áudio (Whisper), por pessoa e por dia
+async function meterGroq(env, uid, model, amount) {
+  if (!uid || !(amount > 0)) return;
+  try { await env.DB.prepare("INSERT INTO papo_groq (user_id,day,model,amount,calls) VALUES (?,?,?,?,1) ON CONFLICT(user_id,day,model) DO UPDATE SET amount=amount+excluded.amount, calls=calls+1").bind(uid, utcDay(), model, amount).run(); }
+  catch (e) { console.error("meterGroq", e); }
+}
+async function groqJson(env, model, system, user, maxTokens, effort, uid) {
   const r = await fetch(GROQ_URL + "/chat/completions", {
     method: "POST", headers: { Authorization: "Bearer " + env.GROQ_API_KEY, "Content-Type": "application/json" },
     body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_completion_tokens: maxTokens + 1000, temperature: 0.5, response_format: { type: "json_object" }, ...(/gpt-oss/.test(model) ? { reasoning_effort: effort } : {}) })
   });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(`groq ${r.status}: ${(d.error && d.error.message || "").slice(0, 160)}`);
-  return (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || "";
+  const content = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || "";
+  await meterGroq(env, uid, model, (d.usage && d.usage.total_tokens) || Math.ceil((system.length + user.length + content.length) / 3.5));
+  return content;
 }
-async function groqStt(env, buf, language) {
+async function groqStt(env, buf, language, uid) {
   const fd = new FormData();
   fd.append("file", new Blob([buf], { type: "audio/wav" }), "audio.wav");
   fd.append("model", "whisper-large-v3-turbo"); fd.append("language", language); fd.append("response_format", "json");
   const r = await fetch(GROQ_URL + "/audio/transcriptions", { method: "POST", headers: { Authorization: "Bearer " + env.GROQ_API_KEY }, body: fd });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(`groq ${r.status}: ${(d.error && d.error.message || "").slice(0, 160)}`);
+  await meterGroq(env, uid, "whisper-large-v3-turbo", Math.max(10, Math.max(0, buf.byteLength - 44) / 32000)); // a Groq cobra no mínimo 10 s por áudio
   return String(d.text || "");
 }
 async function aiJson(env, system, user, schema, parse, maxTokens = 1400, opt = {}) {
@@ -199,7 +209,7 @@ async function aiJson(env, system, user, schema, parse, maxTokens = 1400, opt = 
   const tryGroq = async list => {
     for (const gm of list) {
       const t0 = Date.now();
-      try { const out = parse(await groqJson(env, gm, system, user, maxTokens, effort)); log({ model: "groq:" + gm, ms: Date.now() - t0, ok: !!out }); if (out) return out; }
+      try { const out = parse(await groqJson(env, gm, system, user, maxTokens, effort, opt.uid)); log({ model: "groq:" + gm, ms: Date.now() - t0, ok: !!out }); if (out) return out; }
       catch (e) { log({ model: "groq:" + gm, ms: Date.now() - t0, ok: false, error: String(e && e.message || e).slice(0, 160) }); console.error("groq", gm, e); }
     }
     return null;
@@ -471,7 +481,7 @@ async function api(req, env, path, ctx) {
   if (path === "stt" && method === "POST") {
     const buf = await req.arrayBuffer();
     if (!buf.byteLength || buf.byteLength > MAX_AUDIO) return err("Áudio vazio ou longo demais (máx. 30 s).");
-    const viaGroq = async () => json({ text: (await groqStt(env, buf, T.stt)).replace(/\s+/g, " ").trim(), unsure: [] });
+    const viaGroq = async () => json({ text: (await groqStt(env, buf, T.stt, s.id)).replace(/\s+/g, " ").trim(), unsure: [] });
     if (env.GROQ_API_KEY && (env.PREFER_GROQ === "1" || cfBlocked())) { try { return await viaGroq(); } catch (e) { console.error(e); } }
     try {
       const r = await env.AI.run(STT_MODEL, { audio: b64(buf), language: T.stt });
@@ -518,7 +528,14 @@ async function api(req, env, path, ctx) {
       const u = await env.DB.prepare(`SELECT username, nick FROM ${id.startsWith("p_") ? "papo_users" : "users"} WHERE id=?`).bind(id).first();
       names[id] = u ? { username: u.username, nick: u.nick, owner: id === s.id } : { username: "?", nick: "(conta removida)" };
     }
-    return json({ today: utcDay(), free: FREE_NEURONS, since, rows, names, limit: parseInt(env.DAILY_LIMIT || "40", 10) || 40 });
+    const groq = (await env.DB.prepare("SELECT user_id, day, model, amount, calls FROM papo_groq WHERE day>=? ORDER BY day").bind(since).all()).results || [];
+    for (const id of new Set(groq.map(r => r.user_id))) if (!names[id]) {
+      const u = await env.DB.prepare(`SELECT username, nick FROM ${id.startsWith("p_") ? "papo_users" : "users"} WHERE id=?`).bind(id).first();
+      names[id] = u ? { username: u.username, nick: u.nick, owner: id === s.id } : { username: "?", nick: "(conta removida)" };
+    }
+    // limites do plano grátis da Groq (por modelo, por dia); os números exatos da sua conta ficam no console da Groq
+    const groqLimits = { "openai/gpt-oss-120b": { amount: 200000, calls: 1000, unit: "tokens" }, "openai/gpt-oss-20b": { amount: 200000, calls: 1000, unit: "tokens" }, "whisper-large-v3-turbo": { amount: 28800, calls: 2000, unit: "segundos de áudio" } };
+    return json({ today: utcDay(), free: FREE_NEURONS, since, rows, groq, groqLimits, groqMode: env.GROQ_API_KEY ? (env.PREFER_GROQ === "1" ? "principal" : "reserva") : "sem chave", names, limit: parseInt(env.DAILY_LIMIT || "40", 10) || 40 });
   }
   // velocidade dos modelos (só o dono): /api/admin/speed?lang=en mede cada candidato com a mesma conversa de teste
   if (path === "admin/speed" && method === "GET") {

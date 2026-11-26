@@ -23,7 +23,7 @@
     "SUG_MODEL": "@cf/openai/gpt-oss-20b",
     // Groq (reserva grátis): a chave vai como SEGREDO no painel da Cloudflare, com o nome GROQ_API_KEY (nunca aqui).
     // "1" = usar a Groq primeiro (mais rápida); "0" = só quando a cota da Cloudflare acabar.
-    "PREFER_GROQ": "0",
+    "PREFER_GROQ": "1",
     // Pedidos à IA por dia para cada amigo (protege a cota grátis da Cloudflare).
     "DAILY_LIMIT": "100"
   },
